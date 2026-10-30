@@ -10,6 +10,10 @@ import {
   Cpu,
   Layers,
   ArrowUpRight,
+  Clock,
+  HardDrive,
+  EyeOff,
+  Flame,
 } from 'lucide-react';
 import { BookmarkItem, SearchEngine, ShieldStats } from '../../types/browser';
 import { SEARCH_ENGINES } from '../../utils/browserLogic';
@@ -28,14 +32,14 @@ interface NewTabPageProps {
 }
 
 const DEFAULT_SHORTCUTS = [
-  { title: 'Google AI Studio', url: 'https://aistudio.google.com', icon: '🧠', tag: 'AI' },
-  { title: 'GitHub', url: 'https://github.com', icon: '🐙', tag: 'Dev' },
-  { title: 'Hacker News', url: 'https://news.ycombinator.com', icon: '⚡', tag: 'News' },
-  { title: 'Wikipedia', url: 'https://en.wikipedia.org', icon: '🌐', tag: 'Knowledge' },
-  { title: 'OpenStreetMap', url: 'https://www.openstreetmap.org', icon: '🗺️', tag: 'Map' },
-  { title: 'Tailwind CSS', url: 'https://tailwindcss.com', icon: '🎨', tag: 'Docs' },
-  { title: 'Reddit', url: 'https://www.reddit.com', icon: '💬', tag: 'Social' },
-  { title: 'Perplexity AI', url: 'https://www.perplexity.ai', icon: '✨', tag: 'AI' },
+  { title: 'YouTube', url: 'https://www.youtube.com', icon: '▶️', tag: 'Media', color: '#FF0000' },
+  { title: 'GitHub', url: 'https://github.com', icon: '🐙', tag: 'Dev', color: '#8957E5' },
+  { title: 'Wikipedia', url: 'https://en.wikipedia.org', icon: '🌐', tag: 'Knowledge', color: '#00F0FF' },
+  { title: 'Reddit', url: 'https://www.reddit.com', icon: '💬', tag: 'Social', color: '#FF4500' },
+  { title: 'Hacker News', url: 'https://news.ycombinator.com', icon: '⚡', tag: 'Tech', color: '#FF6600' },
+  { title: 'Stack Overflow', url: 'https://stackoverflow.com', icon: '🥞', tag: 'Dev', color: '#F48024' },
+  { title: 'Google AI Studio', url: 'https://aistudio.google.com', icon: '🧠', tag: 'AI', color: '#4285F4' },
+  { title: 'DuckDuckGo', url: 'https://duckduckgo.com', icon: '🦆', tag: 'Search', color: '#DE5833' },
 ];
 
 export const NewTabPage: React.FC<NewTabPageProps> = ({
@@ -50,12 +54,13 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
   const [query, setQuery] = useState('');
   const [timeStr, setTimeStr] = useState('');
   const [dateStr, setDateStr] = useState('');
+  const [greeting, setGreeting] = useState('Welcome Back');
   const [showAddShortcut, setShowAddShortcut] = useState(false);
   const [newShortcutTitle, setNewShortcutTitle] = useState('');
   const [newShortcutUrl, setNewShortcutUrl] = useState('');
   const [customShortcuts, setCustomShortcuts] = useState<typeof DEFAULT_SHORTCUTS>(() => {
     try {
-      const saved = localStorage.getItem('xyro_custom_shortcuts');
+      const saved = localStorage.getItem('xyro_custom_shortcuts_v2');
       return saved ? JSON.parse(saved) : DEFAULT_SHORTCUTS;
     } catch {
       return DEFAULT_SHORTCUTS;
@@ -65,6 +70,11 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
+      const hours = now.getHours();
+      if (hours < 12) setGreeting('Good Morning');
+      else if (hours < 18) setGreeting('Good Afternoon');
+      else setGreeting('Good Evening');
+
       setTimeStr(
         now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
       );
@@ -80,7 +90,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
-    onNavigate(query.trim());
+    onNavigate(`xyro://search?q=${encodeURIComponent(query.trim())}&engine=${currentEngine.id}`);
   };
 
   const handleAddShortcut = (e: React.FormEvent) => {
@@ -92,10 +102,10 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
     }
     const updated = [
       ...customShortcuts,
-      { title: newShortcutTitle.trim(), url, icon: '🔗', tag: 'Custom' },
+      { title: newShortcutTitle.trim(), url, icon: '🔗', tag: 'Custom', color: '#00F0FF' },
     ];
     setCustomShortcuts(updated);
-    localStorage.setItem('xyro_custom_shortcuts', JSON.stringify(updated));
+    localStorage.setItem('xyro_custom_shortcuts_v2', JSON.stringify(updated));
     setNewShortcutTitle('');
     setNewShortcutUrl('');
     setShowAddShortcut(false);
@@ -105,50 +115,78 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
     e.stopPropagation();
     const updated = customShortcuts.filter((_, i) => i !== index);
     setCustomShortcuts(updated);
-    localStorage.setItem('xyro_custom_shortcuts', JSON.stringify(updated));
+    localStorage.setItem('xyro_custom_shortcuts_v2', JSON.stringify(updated));
   };
 
+  const estimatedActiveRamSaved = hibernatedTabsCount * 128;
+
   return (
-    <div className="min-h-full w-full bg-[#0A0D14] text-slate-100 flex flex-col items-center justify-start p-6 overflow-y-auto selection:bg-[#00F0FF]/30 selection:text-white">
-      {/* Background ambient lighting */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden opacity-40">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[500px] bg-gradient-to-b from-[#00F0FF]/15 to-transparent blur-[120px] rounded-full" />
-        <div className="absolute bottom-10 right-10 w-96 h-96 bg-[#A855F7]/10 blur-[140px] rounded-full" />
+    <div className="h-full w-full bg-[#05070B] text-slate-100 flex flex-col items-center justify-start p-6 md:p-10 overflow-y-auto selection:bg-[#00F0FF]/30 selection:text-white relative">
+      {/* Background radial ambient lighting */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden opacity-50">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[450px] bg-[radial-gradient(circle_at_50%_0%,rgba(0,240,255,0.12),transparent_70%)]" />
+        <div className="absolute bottom-10 right-10 w-96 h-96 bg-[radial-gradient(circle,rgba(59,130,246,0.08),transparent_70%)]" />
       </div>
 
-      <div className="relative z-10 w-full max-w-4xl flex flex-col items-center pt-8 pb-16">
-        {/* Clock & Greeting */}
+      <div className="relative z-10 w-full max-w-4xl flex flex-col items-center pt-4 md:pt-8 pb-16">
+        {/* Clock & Hero Greeting */}
         <div className="text-center mb-6">
-          <div className="text-5xl md:text-6xl font-extrabold tracking-tight font-mono text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-200 to-slate-400">
+          <div className="text-5xl md:text-7xl font-extrabold tracking-tight font-mono text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-100 to-slate-400 drop-shadow-sm">
             {timeStr || '12:00'}
           </div>
-          <p className="text-sm md:text-base text-slate-400 font-medium mt-1">
-            {dateStr} <span className="text-[#00F0FF] mx-1">•</span> Navigator
-          </p>
-        </div>
-
-        {/* Live Shields Summary Chip */}
-        <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md text-xs text-slate-300 shadow-lg hover:border-[#00F0FF]/40 transition-colors">
-            <Shield className="w-3.5 h-3.5 text-[#00F0FF]" />
-            <span className="font-semibold text-white">XyroShields:</span>
-            <span>{shieldStats.adsBlocked.toLocaleString()} ads blocked</span>
-            <span className="text-slate-600">|</span>
-            <span>{shieldStats.bandwidthSavedMb.toFixed(1)} MB saved</span>
-          </div>
-
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md text-xs text-slate-300 shadow-lg hover:border-[#00F0FF]/40 transition-colors">
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span className="font-semibold text-white">XyroBoost:</span>
-            <span>{totalRamMb} MB</span>
-            <span className="text-slate-600">|</span>
-            <span className="text-emerald-400">{hibernatedTabsCount} sleeping</span>
+          <div className="text-sm md:text-base text-slate-400 font-medium mt-1.5 flex items-center justify-center gap-2">
+            <span>{greeting}, Navigator</span>
+            <span className="text-[#00F0FF]">•</span>
+            <span>{dateStr}</span>
           </div>
         </div>
 
-        {/* Omnibox Search Box */}
-        <form onSubmit={handleSearchSubmit} className="w-full max-w-2xl mb-4 relative group">
-          <div className="relative flex items-center w-full rounded-2xl bg-white/[0.06] border border-white/10 backdrop-blur-xl group-hover:border-[#00F0FF]/40 group-focus-within:border-[#00F0FF] group-focus-within:ring-2 group-focus-within:ring-[#00F0FF]/20 transition-all shadow-2xl">
+        {/* XyroShields Live Telemetry Strip */}
+        <div className="w-full max-w-2xl mb-6 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="p-3 rounded-2xl bg-[#0D111A]/80 border border-white/[0.08] backdrop-blur-xl flex flex-col items-center text-center shadow-lg hover:border-[#00F0FF]/30 transition-colors">
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium mb-1">
+              <EyeOff className="w-3.5 h-3.5 text-[#00F0FF]" />
+              <span>Ads Blocked</span>
+            </div>
+            <div className="text-base font-bold font-mono text-white">
+              {(shieldStats.adsBlocked + shieldStats.trackersBlocked).toLocaleString()}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-[#0D111A]/80 border border-white/[0.08] backdrop-blur-xl flex flex-col items-center text-center shadow-lg hover:border-purple-400/30 transition-colors">
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium mb-1">
+              <HardDrive className="w-3.5 h-3.5 text-purple-400" />
+              <span>Bandwidth Saved</span>
+            </div>
+            <div className="text-base font-bold font-mono text-white">
+              {shieldStats.bandwidthSavedMb.toFixed(1)} MB
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-[#0D111A]/80 border border-white/[0.08] backdrop-blur-xl flex flex-col items-center text-center shadow-lg hover:border-emerald-400/30 transition-colors">
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium mb-1">
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Time Saved</span>
+            </div>
+            <div className="text-base font-bold font-mono text-white">
+              {(shieldStats.timeSavedMs / 1000).toFixed(1)}s
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-[#0D111A]/80 border border-white/[0.08] backdrop-blur-xl flex flex-col items-center text-center shadow-lg hover:border-amber-400/30 transition-colors">
+            <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium mb-1">
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>RAM Saved</span>
+            </div>
+            <div className="text-base font-bold font-mono text-amber-300">
+              ~{estimatedActiveRamSaved} MB
+            </div>
+          </div>
+        </div>
+
+        {/* Large Glassmorphic Omnibox Search Bar */}
+        <form onSubmit={handleSearchSubmit} className="w-full max-w-2xl mb-3 relative group">
+          <div className="relative flex items-center w-full rounded-2xl bg-[#0D111A]/90 border border-white/10 backdrop-blur-2xl group-hover:border-[#00F0FF]/40 group-focus-within:border-[#00F0FF] group-focus-within:ring-2 group-focus-within:ring-[#00F0FF]/20 transition-all shadow-2xl">
             <div className="pl-4 text-slate-400">
               <Search className="w-5 h-5 group-focus-within:text-[#00F0FF] transition-colors" />
             </div>
@@ -156,31 +194,31 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search with ${currentEngine.name} or type a URL...`}
-              className="w-full py-4 px-3 bg-transparent text-white placeholder-slate-500 text-base outline-none font-medium"
+              placeholder={`Search with ${currentEngine.name} or enter URL...`}
+              className="w-full py-4 px-3.5 bg-transparent text-white placeholder-slate-500 text-sm md:text-base outline-none font-medium"
               autoFocus
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                className="mr-2 p-1 text-slate-400 hover:text-white rounded-lg"
+                className="mr-2 p-1 text-slate-400 hover:text-white rounded-lg text-lg"
               >
                 ×
               </button>
             )}
             <button
               type="submit"
-              className="mr-3 px-4 py-2 rounded-xl bg-[#00F0FF]/15 hover:bg-[#00F0FF]/25 border border-[#00F0FF]/40 text-[#00F0FF] text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+              className="mr-3 px-4 py-2 rounded-xl bg-[#00F0FF] hover:bg-[#00D0DF] text-black text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-[#00F0FF]/25"
             >
               <span>Explore</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
+              <ArrowUpRight className="w-3.5 h-3.5 stroke-[2.5]" />
             </button>
           </div>
         </form>
 
-        {/* Search Engine Selector Chips */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-10 max-w-xl">
+        {/* Search Engine Switcher Pills */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-8 max-w-xl">
           <span className="text-xs text-slate-500 font-medium">Search with:</span>
           {SEARCH_ENGINES.map((engine) => {
             const isSelected = currentEngine.id === engine.id;
@@ -189,9 +227,9 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
                 key={engine.id}
                 type="button"
                 onClick={() => onSelectEngine(engine)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 border ${
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 border ${
                   isSelected
-                    ? 'bg-[#00F0FF]/20 text-[#00F0FF] border-[#00F0FF]/50 shadow-sm'
+                    ? 'bg-[#00F0FF]/15 text-[#00F0FF] border-[#00F0FF]/50 shadow-sm'
                     : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10 hover:text-slate-200'
                 }`}
               >
@@ -202,7 +240,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
           })}
         </div>
 
-        {/* Speed Dial / Top Sites Grid */}
+        {/* Quick-Access Speed Dial Grid */}
         <div className="w-full">
           <div className="flex items-center justify-between mb-4 px-1">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
@@ -212,32 +250,35 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
             <button
               type="button"
               onClick={() => setShowAddShortcut(true)}
-              className="text-xs text-[#00F0FF] hover:underline flex items-center gap-1 font-medium"
+              className="text-xs text-[#00F0FF] hover:underline flex items-center gap-1 font-semibold"
             >
               <Plus className="w-3.5 h-3.5" />
               Add Shortcut
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
             {customShortcuts.map((shortcut, idx) => (
               <div
                 key={idx}
                 onClick={() => onNavigate(shortcut.url)}
-                className="group relative flex flex-col p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 hover:border-[#00F0FF]/30 backdrop-blur-md cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl"
+                className="group relative flex flex-col p-4 rounded-2xl bg-[#0D111A]/80 hover:bg-[#121724] border border-white/[0.08] hover:border-[#00F0FF]/40 backdrop-blur-xl cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-2xl"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="w-10 h-10 rounded-xl bg-slate-800/80 border border-white/10 flex items-center justify-center text-xl shadow-inner group-hover:scale-105 transition-transform">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border border-white/10"
+                    style={{ backgroundColor: `${shortcut.color || '#00F0FF'}15` }}
+                  >
                     {shortcut.icon}
                   </div>
-                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-white/5 text-slate-400 group-hover:text-slate-300">
+                  <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-white/5 text-slate-400">
                     {shortcut.tag}
                   </span>
                 </div>
-                <div className="font-semibold text-sm text-slate-200 group-hover:text-white truncate">
+                <div className="font-bold text-sm text-slate-200 group-hover:text-white truncate">
                   {shortcut.title}
                 </div>
-                <div className="text-xs text-slate-500 truncate mt-0.5">
+                <div className="text-xs text-slate-500 truncate mt-0.5 font-mono">
                   {shortcut.url.replace(/^https?:\/\//, '')}
                 </div>
 
@@ -245,8 +286,8 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
                 <button
                   type="button"
                   onClick={(e) => handleRemoveShortcut(idx, e)}
-                  aria-label={`Remove shortcut ${shortcut.title}`}
-                  className="absolute top-2 right-2 p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label={`Remove ${shortcut.title}`}
+                  className="absolute top-2.5 right-2.5 p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -260,7 +301,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
           <button
             type="button"
             onClick={() => onNavigate('xyro://extensions')}
-            className="px-3.5 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 hover:border-white/15 text-xs text-slate-300 flex items-center gap-2 transition-colors"
+            className="px-4 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 hover:border-white/15 text-xs text-slate-300 flex items-center gap-2 transition-colors font-semibold"
           >
             <Layers className="w-3.5 h-3.5 text-purple-400" />
             <span>xyro://extensions</span>
@@ -269,7 +310,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
           <button
             type="button"
             onClick={() => onNavigate('xyro://flags')}
-            className="px-3.5 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 hover:border-white/15 text-xs text-slate-300 flex items-center gap-2 transition-colors"
+            className="px-4 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 hover:border-white/15 text-xs text-slate-300 flex items-center gap-2 transition-colors font-semibold"
           >
             <Cpu className="w-3.5 h-3.5 text-amber-400" />
             <span>xyro://flags</span>
@@ -278,7 +319,7 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
           <button
             type="button"
             onClick={() => onNavigate('xyro://settings')}
-            className="px-3.5 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 hover:border-white/15 text-xs text-slate-300 flex items-center gap-2 transition-colors"
+            className="px-4 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 hover:border-white/15 text-xs text-slate-300 flex items-center gap-2 transition-colors font-semibold"
           >
             <Zap className="w-3.5 h-3.5 text-[#00F0FF]" />
             <span>xyro://settings</span>
@@ -288,8 +329,8 @@ export const NewTabPage: React.FC<NewTabPageProps> = ({
 
       {/* Add Shortcut Modal */}
       {showAddShortcut && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="w-full max-w-md bg-[#0F1520] border border-white/10 rounded-2xl p-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-[#0D111A] border border-white/15 rounded-2xl p-6 shadow-2xl relative">
             <h3 className="text-base font-bold text-white mb-4">Add Speed Dial Shortcut</h3>
             <form onSubmit={handleAddShortcut} className="space-y-4">
               <div>

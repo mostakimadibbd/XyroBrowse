@@ -23,6 +23,7 @@ import {
   ZoomOut,
   Maximize2,
   Search,
+  PanelLeft,
 } from 'lucide-react';
 import { Omnibox } from './Omnibox';
 import { BookmarkItem, HistoryItem, SearchEngine, ShieldStats } from '../types/browser';
@@ -54,6 +55,9 @@ interface ToolbarProps {
   // Split Screen
   isSplitScreenActive: boolean;
   onToggleSplitScreen: () => void;
+  // Sidebar
+  isSidebarOpen: boolean;
+  onToggleSidebar: () => void;
   // Device Mode
   deviceMode: 'desktop' | 'tablet' | 'mobile';
   onSetDeviceMode: (mode: 'desktop' | 'tablet' | 'mobile') => void;
@@ -91,6 +95,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   totalRamMb,
   isSplitScreenActive,
   onToggleSplitScreen,
+  isSidebarOpen,
+  onToggleSidebar,
   deviceMode,
   onSetDeviceMode,
   onOpenQrModal,
@@ -103,16 +109,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [showMainMenu, setShowMainMenu] = useState(false);
 
   return (
-    <div className="h-12 flex items-center px-3 bg-[#0A0D14] border-b border-white/10 select-none z-30 relative">
+    <div className="h-12 flex items-center px-3 bg-[#080B12] border-b border-white/10 select-none z-30 relative">
       {/* Navigation Buttons */}
       <div className="flex items-center gap-1 shrink-0 mr-1">
+        {/* Sidebar Toggle */}
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          className={`p-1.5 rounded-lg transition-colors ${
+            isSidebarOpen
+              ? 'text-[#00F0FF] bg-[#00F0FF]/15 border border-[#00F0FF]/30'
+              : 'text-slate-400 hover:text-white hover:bg-white/10'
+          }`}
+          title="Toggle Vertical Tab Rail"
+          aria-label="Toggle Sidebar"
+        >
+          <PanelLeft className="w-4 h-4" />
+        </button>
+
         <button
           type="button"
           onClick={onGoBack}
           disabled={!canGoBack}
           className={`p-1.5 rounded-lg transition-colors ${
             canGoBack
-              ? 'text-slate-300 hover:text-white hover:bg-white/10'
+              ? 'text-slate-200 hover:text-white hover:bg-white/10'
               : 'text-slate-600 cursor-not-allowed'
           }`}
           title="Back (Alt+Left)"
@@ -127,7 +148,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           disabled={!canGoForward}
           className={`p-1.5 rounded-lg transition-colors ${
             canGoForward
-              ? 'text-slate-300 hover:text-white hover:bg-white/10'
+              ? 'text-slate-200 hover:text-white hover:bg-white/10'
               : 'text-slate-600 cursor-not-allowed'
           }`}
           title="Forward (Alt+Right)"
@@ -139,7 +160,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button
           type="button"
           onClick={onReload}
-          className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+          className="p-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/10 transition-colors"
           title="Reload Page (Ctrl+R)"
           aria-label="Reload"
         >
@@ -149,8 +170,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button
           type="button"
           onClick={() => onNavigate('xyro://newtab')}
-          className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-          title="Xyro Home"
+          className="p-1.5 rounded-lg text-slate-200 hover:text-white hover:bg-white/10 transition-colors"
+          title="Xyro Speed Dial (xyro://newtab)"
           aria-label="Home"
         >
           <Home className="w-4 h-4" />
@@ -179,14 +200,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onClick={onToggleShieldsPanel}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all text-xs font-semibold ${
             isShieldsOpen
-              ? 'bg-[#00F0FF]/20 border-[#00F0FF] text-[#00F0FF]'
+              ? 'bg-[#00F0FF]/20 border-[#00F0FF] text-[#00F0FF] shadow-sm shadow-[#00F0FF]/20'
               : 'bg-white/5 border-white/10 text-slate-300 hover:border-[#00F0FF]/40 hover:text-white'
           }`}
           title="XyroShields Privacy Guard"
         >
           <Shield className="w-4 h-4 text-[#00F0FF]" />
           <span className="hidden md:inline font-mono">
-            {shieldStats.adsBlocked + shieldStats.trackersBlocked}
+            {(shieldStats.adsBlocked + shieldStats.trackersBlocked).toLocaleString()}
           </span>
         </button>
 
@@ -196,7 +217,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onClick={onToggleBoostPanel}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all text-xs font-semibold ${
             isBoostOpen
-              ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+              ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm shadow-amber-500/20'
               : 'bg-white/5 border-white/10 text-slate-300 hover:border-amber-400/40 hover:text-white'
           }`}
           title="XyroBoost RAM & Resource Manager"
@@ -220,15 +241,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <Columns className="w-4 h-4" />
         </button>
 
-        {/* Find in Page */}
+        {/* Extensions Quick Button */}
         <button
           type="button"
-          onClick={onToggleFindInPage}
+          onClick={() => onNavigate('xyro://extensions')}
           className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors hidden sm:flex"
-          title="Find in Page (Ctrl+F)"
-          aria-label="Find in Page"
+          title="Extensions Manager (xyro://extensions)"
+          aria-label="Extensions"
         >
-          <Search className="w-4 h-4" />
+          <Puzzle className="w-4 h-4 text-purple-400" />
         </button>
 
         {/* Device Mode Switcher */}
@@ -277,7 +298,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Main Dropdown Menu */}
           {showMainMenu && (
             <div
-              className="absolute right-0 top-10 z-50 w-64 rounded-2xl bg-[#0F1522]/98 border border-white/10 shadow-2xl p-2 backdrop-blur-2xl animate-in fade-in duration-100 space-y-1 text-slate-200"
+              className="absolute right-0 top-10 z-50 w-64 rounded-2xl bg-[#0D121D]/98 border border-white/15 shadow-2xl p-2 backdrop-blur-2xl animate-in fade-in duration-100 space-y-1 text-slate-200"
               onClick={() => setShowMainMenu(false)}
             >
               <button

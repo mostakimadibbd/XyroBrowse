@@ -10,6 +10,8 @@ import {
   FileCode,
   Save,
   CheckCircle2,
+  Sun,
+  Type,
 } from 'lucide-react';
 import { ExtensionItem } from '../../types/browser';
 
@@ -50,6 +52,8 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({
   const renderIcon = (iconName: string) => {
     switch (iconName) {
       case 'Moon': return <Moon className="w-5 h-5 text-indigo-400" />;
+      case 'Sun': return <Sun className="w-5 h-5 text-amber-400" />;
+      case 'Type': return <Type className="w-5 h-5 text-blue-400" />;
       case 'Shield': return <Shield className="w-5 h-5 text-[#00F0FF]" />;
       case 'Zap': return <Zap className="w-5 h-5 text-amber-400" />;
       case 'RotateCw': return <RotateCw className="w-5 h-5 text-emerald-400" />;

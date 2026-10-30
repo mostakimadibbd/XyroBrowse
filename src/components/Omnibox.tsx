@@ -11,13 +11,14 @@ import {
   Calculator,
   Compass,
   ArrowRight,
-  ExternalLink,
+  Sparkles,
+  ChevronDown,
   History,
   Bookmark,
-  ChevronDown,
+  ExternalLink,
 } from 'lucide-react';
-import { BookmarkItem, HistoryItem, OmniboxResult, SearchEngine } from '../types/browser';
-import { parseOmniboxQuery, SEARCH_ENGINES } from '../utils/browserLogic';
+import { BookmarkItem, HistoryItem, SearchEngine } from '../types/browser';
+import { parseOmniboxQuery, SEARCH_ENGINES, evaluateMath } from '../utils/browserLogic';
 
 interface OmniboxProps {
   currentUrl: string;
@@ -56,9 +57,37 @@ export const Omnibox: React.FC<OmniboxProps> = ({
   // Sync input with current tab URL when not focused
   useEffect(() => {
     if (!isFocused) {
-      setInputValue(currentUrl === 'xyro://newtab' ? '' : currentUrl);
+      if (currentUrl === 'xyro://newtab') {
+        setInputValue('');
+      } else if (currentUrl.startsWith('xyro://search?')) {
+        const params = new URLSearchParams(currentUrl.split('?')[1]);
+        setInputValue(params.get('q') || '');
+      } else {
+        setInputValue(currentUrl);
+      }
     }
   }, [currentUrl, isFocused]);
+
+  // Handle typing bang shortcut followed by space: !g , !b , !ddg , !bing , !ai
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    
+    // Check if user typed bang + space
+    const bangMatch = val.match(/^(![a-zA-Z]+)\s+(.*)$/);
+    if (bangMatch) {
+      const bang = bangMatch[1].toLowerCase();
+      const rest = bangMatch[2];
+      const matchedEngine = SEARCH_ENGINES.find((eng) => eng.bang.toLowerCase() === bang);
+      if (matchedEngine) {
+        onSelectEngine(matchedEngine);
+        setInputValue(rest);
+        return;
+      }
+    }
+
+    setInputValue(val);
+    setSelectedIndex(-1);
+  };
 
   // Parse Omnibox suggestions
   const { results } = parseOmniboxQuery(inputValue, currentEngine, bookmarks, history);
@@ -94,6 +123,7 @@ export const Omnibox: React.FC<OmniboxProps> = ({
       inputRef.current?.blur();
     } else if (e.key === 'Escape') {
       setIsFocused(false);
+      setShowEngineDropdown(false);
       inputRef.current?.blur();
     }
   };
@@ -111,37 +141,43 @@ export const Omnibox: React.FC<OmniboxProps> = ({
   return (
     <div ref={containerRef} className="relative flex-1 max-w-2xl mx-2">
       <div
-        className={`relative flex items-center h-9 px-2.5 rounded-xl bg-white/[0.06] border transition-all ${
+        className={`relative flex items-center h-9 px-2.5 rounded-xl bg-white/[0.05] border transition-all ${
           isFocused
-            ? 'border-[#00F0FF] ring-2 ring-[#00F0FF]/20 bg-[#0F1522]'
+            ? 'border-[#00F0FF] ring-2 ring-[#00F0FF]/25 bg-[#0C1019] shadow-lg shadow-[#00F0FF]/5'
             : 'border-white/10 hover:border-white/20'
         }`}
       >
         {/* Security / Protocol Indicator */}
         <div className="flex items-center gap-1.5 mr-2 shrink-0">
           {isInternal ? (
-            <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-[#00F0FF] bg-[#00F0FF]/15 px-1.5 py-0.5 rounded">
-              <Shield className="w-3 h-3" />
+            <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-[#00F0FF] bg-[#00F0FF]/15 px-2 py-0.5 rounded-md border border-[#00F0FF]/30">
+              <Shield className="w-3 h-3 text-[#00F0FF]" />
               <span>xyro://</span>
             </div>
           ) : isHttps ? (
-            <div className="text-emerald-400 p-0.5" title="Secure TLS Connection">
+            <div className="text-emerald-400 p-0.5" title="Secure TLS Encrypted Connection">
               <Lock className="w-3.5 h-3.5" />
             </div>
           ) : (
-            <div className="text-amber-400 p-0.5" title="Insecure HTTP">
+            <div className="text-amber-400 p-0.5" title="Insecure HTTP Connection">
               <Unlock className="w-3.5 h-3.5" />
             </div>
           )}
 
-          {/* Search Engine Icon Button */}
+          {/* Search Engine Switcher Popover Button */}
           <button
             type="button"
             onClick={() => setShowEngineDropdown(!showEngineDropdown)}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-white/10 text-xs font-medium text-slate-300 transition-colors"
-            title={`Current Engine: ${currentEngine.name} (Click to switch)`}
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg hover:bg-white/10 text-xs font-semibold text-slate-200 transition-colors border border-white/5"
+            style={{
+              borderColor: `${currentEngine.color}40`,
+              backgroundColor: `${currentEngine.color}15`,
+            }}
+            title={`Active Engine: ${currentEngine.name} (Click to switch)`}
           >
-            <span className="font-semibold text-[11px]">{currentEngine.name.split(' ')[0]}</span>
+            <span className="font-bold text-[11px]" style={{ color: currentEngine.color }}>
+              {currentEngine.name.split(' ')[0]}
+            </span>
             <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
         </div>
@@ -151,17 +187,14 @@ export const Omnibox: React.FC<OmniboxProps> = ({
           ref={inputRef}
           type="text"
           value={inputValue}
-          onChange={(e) => {
-            setInputValue(e.target.value);
-            setSelectedIndex(-1);
-          }}
+          onChange={handleInputChange}
           onFocus={() => {
             setIsFocused(true);
             inputRef.current?.select();
           }}
           onKeyDown={handleKeyDown}
           placeholder={`Search ${currentEngine.name} or type web address...`}
-          className="w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none font-mono tracking-tight"
+          className="w-full bg-transparent text-xs md:text-sm text-white placeholder-slate-500 outline-none font-mono tracking-tight"
         />
 
         {/* Trailing Action Icons */}
@@ -173,10 +206,10 @@ export const Omnibox: React.FC<OmniboxProps> = ({
               onClick={onToggleReaderMode}
               className={`p-1.5 rounded-lg transition-colors ${
                 readerModeActive
-                  ? 'text-[#00F0FF] bg-[#00F0FF]/20'
+                  ? 'text-[#00F0FF] bg-[#00F0FF]/20 border border-[#00F0FF]/40'
                   : 'hover:text-white hover:bg-white/10'
               }`}
-              title={readerModeActive ? 'Exit Reader Mode' : 'Enter Reader Mode'}
+              title={readerModeActive ? 'Exit Reader Mode' : 'Clean Reader Mode'}
             >
               <BookOpen className="w-3.5 h-3.5" />
             </button>
@@ -187,7 +220,7 @@ export const Omnibox: React.FC<OmniboxProps> = ({
             type="button"
             onClick={handleCopyUrl}
             className="p-1.5 rounded-lg hover:text-white hover:bg-white/10 transition-colors"
-            title="Copy URL to clipboard"
+            title="Copy URL"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
@@ -201,43 +234,55 @@ export const Omnibox: React.FC<OmniboxProps> = ({
                 ? 'text-amber-400 hover:text-amber-300'
                 : 'hover:text-white hover:bg-white/10'
             }`}
-            title={isBookmarked ? 'Bookmarked' : 'Bookmark this page'}
+            title={isBookmarked ? 'Remove Bookmark' : 'Add to Bookmarks Bar'}
           >
-            <Star className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-amber-400' : ''}`} />
+            <Star className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-amber-400 text-amber-400' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Engine Switcher Dropdown */}
+      {/* Engine Switcher Dropdown Popover */}
       {showEngineDropdown && (
-        <div className="absolute left-0 top-11 z-50 w-52 rounded-xl bg-[#0F1522] border border-white/10 shadow-2xl p-1.5 backdrop-blur-xl animate-in fade-in duration-100">
-          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Select Engine
+        <div className="absolute left-0 top-11 z-50 w-60 rounded-2xl bg-[#0D121D]/98 border border-white/15 shadow-2xl p-2 backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-100 space-y-1">
+          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+            <span>Select Search Engine</span>
+            <span className="font-mono text-[9px] text-[#00F0FF]">Type bang !g</span>
           </div>
-          {SEARCH_ENGINES.map((engine) => (
-            <button
-              key={engine.id}
-              type="button"
-              onClick={() => {
-                onSelectEngine(engine);
-                setShowEngineDropdown(false);
-              }}
-              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                currentEngine.id === engine.id
-                  ? 'bg-[#00F0FF]/15 text-[#00F0FF]'
-                  : 'text-slate-300 hover:bg-white/5 hover:text-white'
-              }`}
-            >
-              <span>{engine.name}</span>
-              <span className="font-mono text-[10px] text-slate-500">{engine.bang}</span>
-            </button>
-          ))}
+          {SEARCH_ENGINES.map((engine) => {
+            const isSelected = currentEngine.id === engine.id;
+            return (
+              <button
+                key={engine.id}
+                type="button"
+                onClick={() => {
+                  onSelectEngine(engine);
+                  setShowEngineDropdown(false);
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  isSelected
+                    ? 'bg-[#00F0FF]/15 text-white border border-[#00F0FF]/40 shadow-sm'
+                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: engine.color }}
+                  />
+                  <span>{engine.name}</span>
+                </div>
+                <span className="font-mono text-[10px] text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
+                  {engine.bang}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
       {/* Autocomplete Dropdown */}
       {isFocused && inputValue.trim().length > 0 && results.length > 0 && (
-        <div className="absolute left-0 right-0 top-11 z-50 rounded-2xl bg-[#0F1522]/98 border border-[#00F0FF]/30 shadow-2xl shadow-black/90 p-2 backdrop-blur-2xl animate-in fade-in duration-100 space-y-1">
+        <div className="absolute left-0 right-0 top-11 z-50 rounded-2xl bg-[#0D121D]/98 border border-[#00F0FF]/35 shadow-2xl shadow-black/90 p-2 backdrop-blur-2xl animate-in fade-in duration-100 space-y-1">
           {results.map((res, idx) => {
             const isSelected = selectedIndex === idx;
 
@@ -248,14 +293,14 @@ export const Omnibox: React.FC<OmniboxProps> = ({
                   onNavigate(res.targetUrl);
                   setIsFocused(false);
                 }}
-                className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-colors ${
+                className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all ${
                   isSelected
-                    ? 'bg-[#00F0FF]/15 text-[#00F0FF]'
+                    ? 'bg-[#00F0FF]/20 text-white border border-[#00F0FF]/40 shadow-sm'
                     : 'hover:bg-white/5 text-slate-200'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0 pr-2">
-                  <div className="p-1.5 rounded-lg bg-white/5 text-slate-400 shrink-0">
+                  <div className="p-2 rounded-lg bg-white/5 text-slate-400 shrink-0">
                     {res.type === 'math' ? (
                       <Calculator className="w-4 h-4 text-emerald-400" />
                     ) : res.type === 'unit' ? (
@@ -272,8 +317,13 @@ export const Omnibox: React.FC<OmniboxProps> = ({
                   </div>
 
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate text-white">
-                      {res.title}
+                    <div className="text-sm font-semibold truncate text-white flex items-center gap-2">
+                      <span>{res.title}</span>
+                      {res.type === 'math' && (
+                        <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono">
+                          Instant Answer
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-slate-400 truncate font-mono">
                       {res.subtitle}

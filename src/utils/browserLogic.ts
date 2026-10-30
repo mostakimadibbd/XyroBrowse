@@ -51,11 +51,12 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   },
 ];
 
-export const EXTRA_BANGS: Record<string, { name: string; url: string }> = {
+export const EXTRA_BANGS: Record<string, { name: string; url: string; engineId?: string }> = {
   '!yt': { name: 'YouTube', url: 'https://www.youtube.com/results?search_query=' },
   '!gh': { name: 'GitHub', url: 'https://github.com/search?q=' },
   '!w': { name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Special:Search?search=' },
   '!r': { name: 'Reddit', url: 'https://www.reddit.com/search/?q=' },
+  '!so': { name: 'Stack Overflow', url: 'https://stackoverflow.com/search?q=' },
 };
 
 /**
@@ -95,22 +96,17 @@ export function evaluateMath(input: string): string | null {
     }
   }
 
-  // Arithmetic expressions like "12 * 84", "45 + 10 / 2", "2 ^ 8"
-  // Must contain only numbers, operators (+, -, *, /, %, ^, parentheses)
+  // Arithmetic expressions like "12 * 84", "45 + 10 / 2", "2 ^ 8", "450 * 1.15"
   if (/^[\d.\s()+\-*/%^]+$/.test(trimmed)) {
     // Must have at least one operator to be an equation
     if (!/[+\-*/%^]/.test(trimmed)) return null;
 
     try {
-      // Replace ^ with **
       const sanitized = trimmed.replace(/\^/g, '**');
-      // Tokenize and evaluate safely with Function constructor only with mathematical literals
-      // Ensure no words or letters exist
       if (/^[0-9+\-*/().\s*]+$/.test(sanitized)) {
         // eslint-disable-next-line @typescript-eslint/no-implied-eval
         const result = new Function(`"use strict"; return (${sanitized});`)();
         if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
-          // Format reasonable decimal digits
           return Number.isInteger(result) ? `${result}` : `${parseFloat(result.toFixed(6))}`;
         }
       }
@@ -193,7 +189,7 @@ export function evaluateUnitConversion(input: string): string | null {
     return `${parseFloat(converted.toFixed(4))} ${to}`;
   }
 
-  // Currencies (approximate reference rates)
+  // Currencies
   const currencyRates: Record<string, number> = {
     usd: 1.0,
     eur: 0.92,
@@ -225,8 +221,11 @@ export function isUrlOrDomain(input: string): boolean {
   if (/^localhost(:\d+)?(\/.*)?$/i.test(trimmed)) {
     return true;
   }
-  // Domain pattern: example.com, sub.example.org/path?q=1, 192.168.1.1
-  // Has dot, no spaces, valid TLD or IP
+  // If string contains spaces, it's definitely a search query
+  if (/\s/.test(trimmed)) {
+    return false;
+  }
+  // Domain pattern: e.g. github.com, news.ycombinator.com, vite.dev, 127.0.0.1
   const domainPattern = /^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?(\/[^\s]*)?$/i;
   const ipPattern = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?(\/[^\s]*)?$/;
   return domainPattern.test(trimmed) || ipPattern.test(trimmed);
@@ -247,6 +246,13 @@ export function formatNavigableUrl(input: string): string {
     return `http://${trimmed}`;
   }
   return `https://${trimmed}`;
+}
+
+/**
+ * Builds native XyroSearch URL for search queries
+ */
+export function buildXyroSearchUrl(query: string, engineId: string = 'google'): string {
+  return `xyro://search?q=${encodeURIComponent(query)}&engine=${encodeURIComponent(engineId)}`;
 }
 
 /**
@@ -271,28 +277,29 @@ export function parseOmniboxQuery(
   // 1. Math check
   const mathAnswer = evaluateMath(input);
   if (mathAnswer !== null) {
+    const mathTarget = buildXyroSearchUrl(input, currentEngine.id);
     results.push({
       type: 'math',
       title: `${mathAnswer}`,
       subtitle: `Calculation: ${input} = ${mathAnswer}`,
-      targetUrl: `${currentEngine.searchUrl}${encodeURIComponent(input)}`,
+      targetUrl: mathTarget,
     });
   }
 
   // 2. Unit conversion check
   const unitAnswer = evaluateUnitConversion(input);
   if (unitAnswer !== null) {
+    const unitTarget = buildXyroSearchUrl(input, currentEngine.id);
     results.push({
       type: 'unit',
       title: `${unitAnswer}`,
       subtitle: `Unit Conversion: ${input}`,
-      targetUrl: `${currentEngine.searchUrl}${encodeURIComponent(input)}`,
+      targetUrl: unitTarget,
     });
   }
 
   // 3. xyro:// internal pages
   if (input.startsWith('xyro://')) {
-    const pageName = input.replace('xyro://', '').toLowerCase();
     results.push({
       type: 'internal',
       title: `Open ${input}`,
@@ -317,7 +324,7 @@ export function parseOmniboxQuery(
     }
   }
 
-  // 4. Bang check (!g, !b, !ddg, !yt, !gh, !ai, !w, !r)
+  // 4. Bang check (!g, !b, !ddg, !bing, !sp, !ai, !yt, !gh, !w, !r)
   const bangMatch = input.match(/^(![a-zA-Z]+)\s*(.*)$/);
   if (bangMatch) {
     const bang = bangMatch[1].toLowerCase();
@@ -326,7 +333,7 @@ export function parseOmniboxQuery(
     // Check in SEARCH_ENGINES
     const engineMatch = SEARCH_ENGINES.find((e) => e.bang.toLowerCase() === bang);
     if (engineMatch) {
-      const targetUrl = query ? `${engineMatch.searchUrl}${encodeURIComponent(query)}` : engineMatch.searchUrl.replace(/search\?.*$/, '');
+      const targetUrl = query ? buildXyroSearchUrl(query, engineMatch.id) : `xyro://search?q=&engine=${engineMatch.id}`;
       results.push({
         type: 'search',
         title: query ? `Search with ${engineMatch.name}: "${query}"` : `Open ${engineMatch.name}`,
@@ -366,7 +373,7 @@ export function parseOmniboxQuery(
       type: 'search',
       title: `Search "${input}" on ${currentEngine.name}`,
       subtitle: currentEngine.name,
-      targetUrl: `${currentEngine.searchUrl}${encodeURIComponent(input)}`,
+      targetUrl: buildXyroSearchUrl(input, currentEngine.id),
       engine: currentEngine,
     });
 
@@ -401,12 +408,12 @@ export function parseOmniboxQuery(
     });
   }
 
-  // 7. Default search query
-  const searchUrl = `${currentEngine.searchUrl}${encodeURIComponent(input)}`;
+  // 7. Default search query -> routes to native XyroSearch Aggregator!
+  const searchUrl = buildXyroSearchUrl(input, currentEngine.id);
   results.push({
     type: 'search',
     title: `Search "${input}" on ${currentEngine.name}`,
-    subtitle: `${currentEngine.name} Search`,
+    subtitle: `${currentEngine.name} Search (Native Aggregator)`,
     targetUrl: searchUrl,
     engine: currentEngine,
   });
@@ -446,7 +453,6 @@ export function evaluateAutoHibernate(
 ): string[] {
   const tabsToHibernate: string[] = [];
 
-  // Exclude active tab, split tab, pinned tabs, and already hibernated tabs
   const backgroundTabs = tabs.filter(
     (t) =>
       t.id !== activeTabId &&
@@ -462,10 +468,9 @@ export function evaluateAutoHibernate(
     }
   }
 
-  // 2. Check active tabs limit: if total unhibernated tabs exceed maxActiveTabs
+  // 2. Check active tabs limit
   const currentActiveCount = tabs.filter((t) => !t.isHibernated).length;
   if (currentActiveCount > maxActiveTabs) {
-    // Sort background tabs by oldest lastActive
     const sorted = [...backgroundTabs]
       .filter((t) => !tabsToHibernate.includes(t.id))
       .sort((a, b) => a.lastActive - b.lastActive);

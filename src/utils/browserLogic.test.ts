@@ -8,6 +8,7 @@ import {
   parseOmniboxQuery,
   calculateTabRam,
   evaluateAutoHibernate,
+  buildXyroSearchUrl,
   SEARCH_ENGINES,
 } from './browserLogic.ts';
 import { Tab } from '../types/browser.ts';
@@ -18,6 +19,7 @@ test('evaluateMath correctly computes arithmetic and functions', () => {
   assert.equal(evaluateMath('25% of 800'), '200');
   assert.equal(evaluateMath('sqrt(144)'), '12');
   assert.equal(evaluateMath('abs(-42)'), '42');
+  assert.equal(evaluateMath('450 * 1.15'), '517.5');
   assert.equal(evaluateMath('not math query'), null);
 });
 
@@ -38,6 +40,7 @@ test('isUrlOrDomain detects urls and domains correctly', () => {
   assert.equal(isUrlOrDomain('news.ycombinator.com'), true);
   assert.equal(isUrlOrDomain('localhost:3000'), true);
   assert.equal(isUrlOrDomain('how to make pizza'), false);
+  assert.equal(isUrlOrDomain('react 19 release notes'), false);
 });
 
 test('formatNavigableUrl formats protocols', () => {
@@ -47,14 +50,14 @@ test('formatNavigableUrl formats protocols', () => {
   assert.equal(formatNavigableUrl('localhost:3000'), 'http://localhost:3000');
 });
 
-test('parseOmniboxQuery handles Bangs, internal pages, and search', () => {
+test('parseOmniboxQuery handles Bangs, internal pages, and native search', () => {
   const defaultEngine = SEARCH_ENGINES[0]; // Google
 
-  // Bang !b (Brave)
+  // Bang !b (Brave) routes to native XyroSearch with Brave engine
   const braveResult = parseOmniboxQuery('!b rust lang', defaultEngine);
-  assert.ok(braveResult.navigableUrl.includes('search.brave.com'));
+  assert.ok(braveResult.navigableUrl.includes('xyro://search?q=rust%20lang&engine=brave'));
 
-  // Bang !yt (YouTube)
+  // Bang !yt (YouTube) routes to YouTube
   const ytResult = parseOmniboxQuery('!yt synthwave 4k', defaultEngine);
   assert.ok(ytResult.navigableUrl.includes('youtube.com'));
 
@@ -66,14 +69,14 @@ test('parseOmniboxQuery handles Bangs, internal pages, and search', () => {
   const shortcutResult = parseOmniboxQuery('settings', defaultEngine);
   assert.equal(shortcutResult.navigableUrl, 'xyro://settings');
 
-  // Regular search
+  // Regular search query routes to native XyroSearch
   const searchResult = parseOmniboxQuery('best coding font', defaultEngine);
-  assert.ok(searchResult.navigableUrl.includes('google.com/search?q='));
+  assert.ok(searchResult.navigableUrl.includes('xyro://search?q=best%20coding%20font&engine=google'));
 });
 
 test('calculateTabRam estimates memory accurately', () => {
   assert.equal(calculateTabRam('https://youtube.com/watch?v=123', false), 340);
-  assert.equal(calculateTabRam('https://youtube.com/watch?v=123', true), 12); // Hibernated
+  assert.equal(calculateTabRam('https://youtube.com/watch?v=123', true), 12);
   assert.equal(calculateTabRam('xyro://newtab', false), 38);
 });
 
@@ -101,7 +104,7 @@ test('evaluateAutoHibernate selects inactive tabs for sleeping', () => {
       title: 'Idle Background',
       isIncognito: false,
       isHibernated: false,
-      lastActive: now - 600000, // 10 minutes ago
+      lastActive: now - 600000,
       zoomLevel: 100,
       pinned: false,
       history: [],
@@ -118,7 +121,7 @@ test('evaluateAutoHibernate selects inactive tabs for sleeping', () => {
       isHibernated: false,
       lastActive: now - 800000,
       zoomLevel: 100,
-      pinned: true, // Should NOT hibernate
+      pinned: true,
       history: [],
       historyIndex: 0,
       readerMode: false,

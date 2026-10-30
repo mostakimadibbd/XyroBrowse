@@ -19,10 +19,14 @@ import {
   calculateTabRam,
   evaluateAutoHibernate,
   formatNavigableUrl,
+  isUrlOrDomain,
+  buildXyroSearchUrl,
 } from './utils/browserLogic';
 import { StorageService } from './utils/storage';
 import { TabBar } from './components/TabBar';
 import { Toolbar } from './components/Toolbar';
+import { BookmarksBar } from './components/BookmarksBar';
+import { Sidebar } from './components/Sidebar';
 import { WebViewport } from './components/WebViewport';
 import { SplitScreenContainer } from './components/SplitScreenContainer';
 import { XyroShieldsPanel } from './components/XyroShieldsPanel';
@@ -31,6 +35,7 @@ import { MobileBottomBar } from './components/MobileBottomBar';
 import { MobileCardGridSwitcher } from './components/MobileCardGridSwitcher';
 import { FindInPageBar } from './components/FindInPageBar';
 import { QrCodeModal } from './components/QrCodeModal';
+import { ActiveExtensionsOverlay } from './components/ActiveExtensionsOverlay';
 import {
   Shield,
   Zap,
@@ -91,6 +96,8 @@ export default function App() {
   );
   const [currentEngine, setCurrentEngine] = useState<SearchEngine>(SEARCH_ENGINES[0]);
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showBookmarksBar, setShowBookmarksBar] = useState(true);
 
   // UI Panels and Modals
   const [isShieldsOpen, setIsShieldsOpen] = useState(false);
@@ -101,53 +108,60 @@ export default function App() {
   const [isMobileOmniboxModalOpen, setIsMobileOmniboxModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
 
-  // Sync Tabs to Storage
+  // Responsive <640px detection
+  const [isSmallScreen, setIsSmallScreen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 640 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsSmallScreen(window.innerWidth < 640);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isMobileLayout = deviceMode === 'mobile' || isSmallScreen;
+
+  // Sync to Storage
   useEffect(() => {
     StorageService.saveTabs(tabs);
   }, [tabs]);
 
-  // Sync Active Tab
   useEffect(() => {
     StorageService.saveActiveTabId(activeTabId);
   }, [activeTabId]);
 
-  // Sync Split Tab
   useEffect(() => {
     StorageService.saveSplitTabId(splitTabId);
   }, [splitTabId]);
 
-  // Sync History
   useEffect(() => {
     StorageService.saveHistory(history);
   }, [history]);
 
-  // Sync Bookmarks
   useEffect(() => {
     StorageService.saveBookmarks(bookmarks);
   }, [bookmarks]);
 
-  // Sync Downloads
   useEffect(() => {
     StorageService.saveDownloads(downloads);
   }, [downloads]);
 
-  // Sync Extensions
   useEffect(() => {
     StorageService.saveExtensions(extensions);
   }, [extensions]);
 
-  // Sync Flags
   useEffect(() => {
     StorageService.saveFlags(flags);
   }, [flags]);
 
-  // Sync Passwords
   useEffect(() => {
     StorageService.savePasswords(passwords);
   }, [passwords]);
 
-  // Sync Shield Settings & Stats
   useEffect(() => {
     StorageService.saveShieldSettings(shieldSettings);
   }, [shieldSettings]);
@@ -156,7 +170,6 @@ export default function App() {
     StorageService.saveShieldStats(shieldStats);
   }, [shieldStats]);
 
-  // Sync Boost Settings
   useEffect(() => {
     StorageService.saveBoostSettings(boostSettings);
   }, [boostSettings]);
@@ -206,88 +219,52 @@ export default function App() {
     return () => clearInterval(interval);
   }, [tabs, activeTabId, splitTabId, boostSettings]);
 
-  // Keyboard Shortcuts Handler
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+T or Cmd+T: New tab
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
-        e.preventDefault();
-        handleNewTab(false);
-      }
-      // Ctrl+Shift+N: Incognito tab
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
-        e.preventDefault();
-        handleNewTab(true);
-      }
-      // Ctrl+W or Cmd+W: Close tab
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
-        e.preventDefault();
-        if (activeTab) handleCloseTab(activeTab.id);
-      }
-      // Ctrl+F: Find in page
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        setIsFindInPageOpen((prev) => !prev);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab]);
-
   // Tab Selection
-  const handleSelectTab = useCallback(
-    (tabId: string) => {
-      setActiveTabId(tabId);
-      setTabs((prev) =>
-        prev.map((tab) =>
-          tab.id === tabId
-            ? {
-                ...tab,
-                isHibernated: false,
-                lastActive: Date.now(),
-                estimatedRamMb: calculateTabRam(tab.url, false),
-              }
-            : tab
-        )
-      );
-    },
-    []
-  );
+  const handleSelectTab = useCallback((tabId: string) => {
+    setActiveTabId(tabId);
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              isHibernated: false,
+              lastActive: Date.now(),
+              estimatedRamMb: calculateTabRam(tab.url, false),
+            }
+          : tab
+      )
+    );
+  }, []);
 
   // New Tab
-  const handleNewTab = useCallback(
-    (isIncognito = false, targetUrl = 'xyro://newtab') => {
-      const newId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-      const title = targetUrl === 'xyro://newtab' ? 'New Tab' : 'Web Page';
-      const newTab: Tab = {
-        id: newId,
-        url: targetUrl,
-        title,
-        isIncognito,
-        isHibernated: false,
-        lastActive: Date.now(),
-        zoomLevel: 100,
-        pinned: false,
-        history: [targetUrl],
-        historyIndex: 0,
-        readerMode: false,
-        useProxy: false,
-        estimatedRamMb: calculateTabRam(targetUrl, false),
-      };
+  const handleNewTab = useCallback((isIncognito = false, targetUrl = 'xyro://newtab') => {
+    const newId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    const title = targetUrl === 'xyro://newtab' ? 'New Tab' : 'Web Portal';
+    const newTab: Tab = {
+      id: newId,
+      url: targetUrl,
+      title,
+      isIncognito,
+      isHibernated: false,
+      lastActive: Date.now(),
+      zoomLevel: 100,
+      pinned: false,
+      history: [targetUrl],
+      historyIndex: 0,
+      readerMode: false,
+      useProxy: false,
+      estimatedRamMb: calculateTabRam(targetUrl, false),
+    };
 
-      setTabs((prev) => [...prev, newTab]);
-      setActiveTabId(newId);
-    },
-    []
-  );
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newId);
+  }, []);
 
   // Close Tab
   const handleCloseTab = useCallback(
     (tabId: string) => {
       setTabs((prev) => {
         if (prev.length <= 1) {
-          // Keep at least one new tab
           const newId = `tab-${Date.now()}`;
           setActiveTabId(newId);
           return [
@@ -349,46 +326,68 @@ export default function App() {
 
   // Navigate Active Tab
   const handleNavigate = useCallback(
-    (rawUrl: string) => {
-      const formattedUrl = formatNavigableUrl(rawUrl);
+    (rawInput: string) => {
+      let finalUrl = rawInput.trim();
+
+      // If it's not a URL, domain, or xyro:// protocol, route to native XyroSearch!
+      if (!isUrlOrDomain(finalUrl) && !finalUrl.startsWith('xyro://')) {
+        finalUrl = buildXyroSearchUrl(finalUrl, currentEngine.id);
+      } else {
+        finalUrl = formatNavigableUrl(finalUrl);
+      }
+
+      // Smooth progress bar simulation
       setIsLoading(true);
+      setLoadingProgress(15);
+      const timer1 = setTimeout(() => setLoadingProgress(65), 150);
+      const timer2 = setTimeout(() => {
+        setLoadingProgress(100);
+        setTimeout(() => {
+          setIsLoading(false);
+          setLoadingProgress(0);
+        }, 200);
+      }, 400);
 
       // Determine human title
-      let title = formattedUrl;
-      if (formattedUrl.startsWith('xyro://')) {
-        const page = formattedUrl.replace('xyro://', '');
+      let title = finalUrl;
+      if (finalUrl.startsWith('xyro://search')) {
+        const params = new URLSearchParams(finalUrl.split('?')[1]);
+        const q = params.get('q') || 'Search';
+        title = `${q} - XyroSearch`;
+      } else if (finalUrl.startsWith('xyro://')) {
+        const page = finalUrl.replace('xyro://', '');
         title = page.charAt(0).toUpperCase() + page.slice(1);
       } else {
         try {
-          title = new URL(formattedUrl).hostname.replace('www.', '');
+          title = new URL(finalUrl).hostname.replace('www.', '');
         } catch {
-          title = formattedUrl;
+          title = finalUrl;
         }
       }
 
       setTabs((prev) =>
         prev.map((tab) => {
           if (tab.id !== activeTabId) return tab;
-          const nextHistory = [...tab.history.slice(0, tab.historyIndex + 1), formattedUrl];
+          const nextHistory = [...tab.history.slice(0, tab.historyIndex + 1), finalUrl];
           return {
             ...tab,
-            url: formattedUrl,
+            url: finalUrl,
             title,
             isHibernated: false,
             lastActive: Date.now(),
             history: nextHistory,
             historyIndex: nextHistory.length - 1,
-            estimatedRamMb: calculateTabRam(formattedUrl, false),
+            estimatedRamMb: calculateTabRam(finalUrl, false),
           };
         })
       );
 
       // Record in History if not incognito
-      if (activeTab && !activeTab.isIncognito && !formattedUrl.startsWith('xyro://newtab')) {
+      if (activeTab && !activeTab.isIncognito && !finalUrl.startsWith('xyro://newtab')) {
         setHistory((prev) => [
           {
             id: `hist-${Date.now()}`,
-            url: formattedUrl,
+            url: finalUrl,
             title,
             timestamp: Date.now(),
             visitCount: 1,
@@ -397,8 +396,8 @@ export default function App() {
         ]);
       }
 
-      // Simulate XyroShields blocking stats
-      if (!formattedUrl.startsWith('xyro://') && shieldSettings.blockAds) {
+      // Increment live shield statistics
+      if (!finalUrl.startsWith('xyro://') && shieldSettings.blockAds) {
         const addedAds = Math.floor(Math.random() * 5) + 3;
         const addedTrackers = Math.floor(Math.random() * 8) + 4;
         const addedBandwidth = 0.2 + Math.random() * 0.4;
@@ -411,10 +410,8 @@ export default function App() {
           timeSavedMs: Math.round(prev.timeSavedMs + addedTime),
         }));
       }
-
-      setTimeout(() => setIsLoading(false), 500);
     },
-    [activeTabId, activeTab, shieldSettings]
+    [activeTabId, activeTab, currentEngine, shieldSettings]
   );
 
   // Back / Forward
@@ -461,7 +458,15 @@ export default function App() {
 
   const handleReload = useCallback(() => {
     setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 400);
+    setLoadingProgress(20);
+    setTimeout(() => setLoadingProgress(70), 150);
+    setTimeout(() => {
+      setLoadingProgress(100);
+      setTimeout(() => {
+        setIsLoading(false);
+        setLoadingProgress(0);
+      }, 150);
+    }, 350);
   }, []);
 
   // Hibernate & Memory Management
@@ -480,22 +485,19 @@ export default function App() {
     );
   }, []);
 
-  const handleToggleTabHibernate = useCallback(
-    (tabId: string) => {
-      setTabs((prev) =>
-        prev.map((t) => {
-          if (t.id !== tabId) return t;
-          const nextHibernated = !t.isHibernated;
-          return {
-            ...t,
-            isHibernated: nextHibernated,
-            estimatedRamMb: nextHibernated ? 12 : calculateTabRam(t.url, false),
-          };
-        })
-      );
-    },
-    []
-  );
+  const handleToggleTabHibernate = useCallback((tabId: string) => {
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.id !== tabId) return t;
+        const nextHibernated = !t.isHibernated;
+        return {
+          ...t,
+          isHibernated: nextHibernated,
+          estimatedRamMb: nextHibernated ? 12 : calculateTabRam(t.url, false),
+        };
+      })
+    );
+  }, []);
 
   const handleHibernateAllBackground = useCallback(() => {
     setTabs((prev) =>
@@ -516,13 +518,6 @@ export default function App() {
       )
     );
   }, [activeTabId, splitTabId]);
-
-  // Pin Tab
-  const handleTogglePinTab = useCallback((tabId: string) => {
-    setTabs((prev) =>
-      prev.map((t) => (t.id === tabId ? { ...t, pinned: !t.pinned } : t))
-    );
-  }, []);
 
   // Bookmarking
   const isCurrentBookmarked = useMemo(() => {
@@ -548,42 +543,28 @@ export default function App() {
     }
   }, [activeTab, isCurrentBookmarked]);
 
-  const handleAddBookmark = useCallback(
-    (title: string, url: string, folder = 'Favorites') => {
-      setBookmarks((prev) => [
-        ...prev,
-        {
-          id: `bm-${Date.now()}`,
-          title,
-          url,
-          createdAt: Date.now(),
-          folder,
-        },
-      ]);
-    },
-    []
-  );
+  const handleAddBookmark = useCallback((title: string, url: string, folder = 'Favorites') => {
+    setBookmarks((prev) => [
+      ...prev,
+      {
+        id: `bm-${Date.now()}`,
+        title,
+        url,
+        createdAt: Date.now(),
+        folder,
+      },
+    ]);
+  }, []);
 
   const handleDeleteBookmark = useCallback((id: string) => {
     setBookmarks((prev) => prev.filter((b) => b.id !== id));
   }, []);
-
-  // Reader Mode
-  const handleToggleReaderMode = useCallback(() => {
-    if (!activeTab) return;
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.id === activeTab.id ? { ...t, readerMode: !t.readerMode } : t
-      )
-    );
-  }, [activeTab]);
 
   // Split Screen
   const handleToggleSplitScreen = useCallback(() => {
     if (splitTabId) {
       setSplitTabId(null);
     } else {
-      // Pick the next available background tab or create a new one
       const otherTab = tabs.find((t) => t.id !== activeTabId);
       if (otherTab) {
         setSplitTabId(otherTab.id);
@@ -624,7 +605,6 @@ export default function App() {
     };
     setDownloads((prev) => [testPackage, ...prev]);
 
-    // Simulate progress
     let p = 0;
     const dlInterval = setInterval(() => {
       p += 20;
@@ -762,38 +742,43 @@ export default function App() {
     );
   };
 
-  const [isSmallScreen, setIsSmallScreen] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth < 640 : false
-  );
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsSmallScreen(window.innerWidth < 640);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const isMobileLayout = deviceMode === 'mobile' || isSmallScreen;
-
   return (
-    <div className="w-full h-full bg-[#0A0D14] text-slate-100 flex flex-col overflow-hidden relative font-sans">
-      {/* If emulating mobile on a desktop frame or in mobile mode */}
-      <div
-        className={`w-full h-full flex flex-col overflow-hidden ${
-          isMobileLayout ? 'max-w-md mx-auto my-auto shadow-2xl border-x border-white/10 h-full' : ''
-        }`}
-      >
-        {/* Desktop / Tablet Top Tabs & Toolbar */}
+    <div className="h-dvh w-screen overflow-hidden flex flex-col bg-[#05070B] text-slate-100 font-sans relative">
+      {/* Top Loading Progress Bar */}
+      {isLoading && (
+        <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-transparent overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-[#00F0FF] via-[#3B82F6] to-[#00F0FF] transition-all duration-300 shadow-sm shadow-[#00F0FF]"
+            style={{ width: `${loadingProgress}%` }}
+          />
+        </div>
+      )}
+
+      {/* Active Eye Care & Extensions Overlay */}
+      <ActiveExtensionsOverlay
+        extensions={extensions}
+        zoomLevel={activeTab ? activeTab.zoomLevel : 100}
+      />
+
+      {/* Main Wrapper */}
+      <div className={`w-full h-full flex flex-col overflow-hidden ${
+        isMobileLayout ? 'max-w-md mx-auto my-auto shadow-2xl border-x border-white/10 h-full' : ''
+      }`}>
+        {/* Desktop / Tablet Chrome */}
         {!isMobileLayout && (
-          <>
+          <header className="flex flex-col shrink-0 z-30">
+            {/* Top Tab Bar (Hidden if Sidebar is active, or toggleable) */}
             <TabBar
               tabs={tabs}
               activeTabId={activeTabId}
               onSelectTab={handleSelectTab}
               onCloseTab={handleCloseTab}
               onNewTab={handleNewTab}
-              onTogglePinTab={handleTogglePinTab}
+              onTogglePinTab={(id) =>
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t))
+                )
+              }
               tabGroups={tabGroups}
               onToggleTabGroupCollapse={(id) =>
                 setTabGroups((prev) =>
@@ -803,6 +788,7 @@ export default function App() {
               isIncognitoSession={activeTab ? activeTab.isIncognito : false}
             />
 
+            {/* Omnibox Toolbar */}
             <Toolbar
               currentUrl={activeTab ? activeTab.url : 'xyro://newtab'}
               onNavigate={handleNavigate}
@@ -819,7 +805,15 @@ export default function App() {
               isBookmarked={isCurrentBookmarked}
               onToggleBookmark={handleToggleBookmark}
               readerModeActive={activeTab ? activeTab.readerMode : false}
-              onToggleReaderMode={handleToggleReaderMode}
+              onToggleReaderMode={() => {
+                if (activeTab) {
+                  setTabs((prev) =>
+                    prev.map((t) =>
+                      t.id === activeTab.id ? { ...t, readerMode: !t.readerMode } : t
+                    )
+                  );
+                }
+              }}
               onToggleShieldsPanel={() => {
                 setIsShieldsOpen(!isShieldsOpen);
                 setIsBoostOpen(false);
@@ -834,6 +828,8 @@ export default function App() {
               totalRamMb={totalRamMb}
               isSplitScreenActive={!!splitTabId}
               onToggleSplitScreen={handleToggleSplitScreen}
+              isSidebarOpen={isSidebarOpen}
+              onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
               deviceMode={deviceMode}
               onSetDeviceMode={setDeviceMode}
               onOpenQrModal={() => setIsQrModalOpen(true)}
@@ -843,12 +839,23 @@ export default function App() {
               zoomLevel={activeTab ? activeTab.zoomLevel : 100}
               onToggleFullscreen={handleToggleFullscreen}
             />
-          </>
+
+            {/* Persistent Bookmarks Bar */}
+            {showBookmarksBar && (
+              <BookmarksBar
+                bookmarks={bookmarks}
+                onNavigate={handleNavigate}
+                onAddBookmark={handleAddBookmark}
+                onDeleteBookmark={handleDeleteBookmark}
+                currentUrl={activeTab ? activeTab.url : ''}
+              />
+            )}
+          </header>
         )}
 
         {/* Mobile Top Minimal Header */}
         {isMobileLayout && (
-          <div className="h-11 bg-[#07090E] border-b border-white/10 px-3 flex items-center justify-between text-xs shrink-0 select-none">
+          <div className="h-11 bg-[#080B12] border-b border-white/10 px-3 flex items-center justify-between text-xs shrink-0 select-none">
             <div className="flex items-center gap-1.5 font-bold tracking-tight text-white">
               <span className="w-2.5 h-2.5 rounded-full bg-[#00F0FF] shadow-sm shadow-[#00F0FF]" />
               <span>XyroBrowse Mobile</span>
@@ -860,7 +867,7 @@ export default function App() {
                 onClick={() => setDeviceMode('desktop')}
                 className="px-2 py-0.5 rounded bg-white/5 text-[10px] text-[#00F0FF] font-semibold border border-[#00F0FF]/30"
               >
-                Exit Mobile Mode
+                Desktop Mode
               </button>
             </div>
           </div>
@@ -903,26 +910,45 @@ export default function App() {
           onClose={() => setIsQrModalOpen(false)}
         />
 
-        {/* Main Viewport Content Area */}
-        <main className="flex-1 w-full h-full overflow-hidden relative">
-          {splitTabId && secondaryTab ? (
-            <SplitScreenContainer
-              primaryTab={activeTab}
-              secondaryTab={secondaryTab}
-              renderViewport={renderTabViewport}
-              onCloseSplit={() => setSplitTabId(null)}
-              onNavigateSecondary={(url) => {
-                setTabs((prev) =>
-                  prev.map((t) => (t.id === splitTabId ? { ...t, url } : t))
-                );
-              }}
+        {/* Browser Body with optional Arc-style Sidebar */}
+        <div className="flex-1 w-full h-full flex overflow-hidden relative">
+          {!isMobileLayout && (
+            <Sidebar
+              isOpen={isSidebarOpen}
+              onToggle={() => setIsSidebarOpen(false)}
+              tabs={tabs}
+              activeTabId={activeTabId}
+              onSelectTab={handleSelectTab}
+              onCloseTab={handleCloseTab}
+              onNewTab={handleNewTab}
+              tabGroups={tabGroups}
+              totalRamMb={totalRamMb}
+              shieldStats={shieldStats}
+              onNavigate={handleNavigate}
             />
-          ) : (
-            renderTabViewport(activeTab, false)
           )}
-        </main>
 
-        {/* Mobile APK Bottom Thumb Zone Toolbar */}
+          {/* Main Viewport Content Area */}
+          <main className="flex-1 w-full h-full overflow-hidden relative">
+            {splitTabId && secondaryTab ? (
+              <SplitScreenContainer
+                primaryTab={activeTab}
+                secondaryTab={secondaryTab}
+                renderViewport={renderTabViewport}
+                onCloseSplit={() => setSplitTabId(null)}
+                onNavigateSecondary={(url) => {
+                  setTabs((prev) =>
+                    prev.map((t) => (t.id === splitTabId ? { ...t, url } : t))
+                  );
+                }}
+              />
+            ) : (
+              renderTabViewport(activeTab, false)
+            )}
+          </main>
+        </div>
+
+        {/* Mobile APK Bottom Floating Glass Dock */}
         {isMobileLayout && (
           <MobileBottomBar
             currentUrl={activeTab ? activeTab.url : 'xyro://newtab'}
@@ -953,13 +979,13 @@ export default function App() {
 
       {/* Mobile Omnibox Fullscreen Modal */}
       {isMobileOmniboxModalOpen && (
-        <div className="fixed inset-0 z-50 bg-[#0A0D14]/98 p-4 flex flex-col animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 bg-[#05070B]/98 p-4 flex flex-col animate-in fade-in duration-150">
           <div className="flex items-center gap-2 pb-3 border-b border-white/10">
             <Search className="w-5 h-5 text-[#00F0FF]" />
             <input
               type="text"
               defaultValue={activeTab?.url === 'xyro://newtab' ? '' : activeTab?.url}
-              placeholder={`Search ${currentEngine.name} or type URL...`}
+              placeholder={`Search with ${currentEngine.name} or type URL...`}
               className="flex-1 bg-transparent text-white text-base outline-none font-mono"
               autoFocus
               onKeyDown={(e) => {
@@ -983,7 +1009,7 @@ export default function App() {
 
           <div className="py-4 space-y-2">
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              Quick Shortcuts
+              Quick Portals
             </div>
             {['xyro://newtab', 'xyro://history', 'xyro://bookmarks', 'xyro://downloads', 'xyro://extensions', 'xyro://settings'].map((u) => (
               <div
@@ -995,7 +1021,7 @@ export default function App() {
                 className="p-3 rounded-xl bg-white/5 text-sm text-slate-200 active:bg-[#00F0FF]/20 flex items-center justify-between"
               >
                 <span>{u}</span>
-                <span className="text-xs text-slate-500">Internal</span>
+                <span className="text-xs text-slate-500 font-mono">System</span>
               </div>
             ))}
           </div>
@@ -1005,7 +1031,7 @@ export default function App() {
       {/* Mobile Bottom-Sheet Menu */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end">
-          <div className="w-full bg-[#0F1522] border-t border-white/10 rounded-t-3xl p-6 space-y-3 animate-in slide-in-from-bottom duration-200">
+          <div className="w-full bg-[#0D111A] border-t border-white/10 rounded-t-3xl p-6 space-y-3 animate-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <h3 className="font-bold text-white text-base">XyroBrowse Options</h3>
               <button
@@ -1045,7 +1071,13 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  handleToggleReaderMode();
+                  if (activeTab) {
+                    setTabs((prev) =>
+                      prev.map((t) =>
+                        t.id === activeTab.id ? { ...t, readerMode: !t.readerMode } : t
+                      )
+                    );
+                  }
                   setIsMobileMenuOpen(false);
                 }}
                 className="p-3 rounded-xl bg-white/5 flex flex-col items-center gap-1.5 text-xs text-slate-200"
