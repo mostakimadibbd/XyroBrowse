@@ -1,7 +1,5 @@
 import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
-import { once } from 'node:events';
-import type { IncomingMessage, ServerResponse } from 'node:http';
 import { safeFetch, SsfError } from '../../server/safeFetch.js';
 import { rewriteHtml, rewriteCss, toProxyUrl } from '../../server/rewriteHtml.js';
 import { extractArticle } from '../../server/reader.js';
@@ -365,79 +363,12 @@ app.get('/download', async (c) => {
   }
 });
 
-interface VercelRequest extends IncomingMessage {
-  body?: unknown;
-}
+const handleRequest = (request: Request): Promise<Response> => app.fetch(request);
 
-function getRequestBody(body: unknown, contentType: string): BodyInit | undefined {
-  if (typeof body === 'string') return body;
-  if (body instanceof Uint8Array) return new Uint8Array(body);
-  if (!body || typeof body !== 'object') return undefined;
-
-  if (contentType.includes('application/x-www-form-urlencoded')) {
-    const formData = new URLSearchParams();
-    for (const [key, value] of Object.entries(body)) {
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        formData.set(key, String(value));
-      }
-    }
-    return formData;
-  }
-
-  return JSON.stringify(body);
-}
-
-export default async function handler(req: VercelRequest, res: ServerResponse): Promise<void> {
-  try {
-    const headers = new Headers();
-    for (const [name, value] of Object.entries(req.headers)) {
-      if (typeof value === 'string') headers.set(name, value);
-      else if (Array.isArray(value)) headers.set(name, value.join(', '));
-    }
-
-    const host = headers.get('x-forwarded-host')?.split(',')[0] || headers.get('host') || 'localhost';
-    const protocol = headers.get('x-forwarded-proto')?.split(',')[0] || 'https';
-    const url = new URL(req.url || '/', `${protocol}://${host}`);
-    if (url.pathname.startsWith('/p/')) {
-      url.pathname = `/api${url.pathname}`;
-    } else if (!url.pathname.startsWith('/api/')) {
-      url.pathname = `/api${url.pathname}`;
-    }
-
-    if (url.pathname.startsWith('/api/proxy/')) {
-      url.pathname = url.pathname.replace(/^\/api\/proxy\//, '/api/p/');
-    }
-    const method = (req.method || 'GET').toUpperCase();
-    const contentType = headers.get('content-type') || '';
-    const body = method === 'GET' || method === 'HEAD'
-      ? undefined
-      : getRequestBody(req.body, contentType);
-    const request = new Request(url, { method, headers, body });
-    const response = await app.fetch(request);
-
-    res.statusCode = response.status;
-    response.headers.forEach((value, name) => res.setHeader(name, value));
-
-    if (!response.body) {
-      res.end();
-      return;
-    }
-
-    const reader = response.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!res.write(value) && !res.destroyed) await once(res, 'drain');
-    }
-    res.end();
-  } catch (error) {
-    console.error('Vercel proxy function failed:', error);
-    if (!res.headersSent) {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.end(JSON.stringify({ error: 'Proxy request failed', code: 'ERR_PROXY_FAILED' }));
-    } else {
-      res.destroy(error instanceof Error ? error : undefined);
-    }
-  }
-}
+export const GET = handleRequest;
+export const HEAD = handleRequest;
+export const POST = handleRequest;
+export const PUT = handleRequest;
+export const PATCH = handleRequest;
+export const DELETE = handleRequest;
+export const OPTIONS = handleRequest;
