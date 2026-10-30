@@ -4,7 +4,7 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   {
     id: 'google',
     name: 'Google',
-    icon: 'Search',
+    icon: '🔍',
     searchUrl: 'https://www.google.com/search?q=',
     bang: '!g',
     color: '#4285F4',
@@ -12,7 +12,7 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   {
     id: 'brave',
     name: 'Brave Search',
-    icon: 'Shield',
+    icon: '🦁',
     searchUrl: 'https://search.brave.com/search?q=',
     bang: '!b',
     color: '#FB542B',
@@ -20,7 +20,7 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   {
     id: 'duckduckgo',
     name: 'DuckDuckGo',
-    icon: 'EyeOff',
+    icon: '🦆',
     searchUrl: 'https://duckduckgo.com/?q=',
     bang: '!ddg',
     color: '#DE5833',
@@ -28,7 +28,7 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   {
     id: 'bing',
     name: 'Bing',
-    icon: 'Compass',
+    icon: '🅱️',
     searchUrl: 'https://www.bing.com/search?q=',
     bang: '!bing',
     color: '#008373',
@@ -36,7 +36,7 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   {
     id: 'startpage',
     name: 'Startpage',
-    icon: 'Lock',
+    icon: '🔒',
     searchUrl: 'https://www.startpage.com/sp/search?query=',
     bang: '!sp',
     color: '#6574CD',
@@ -44,7 +44,7 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   {
     id: 'perplexity',
     name: 'Perplexity AI',
-    icon: 'Sparkles',
+    icon: '✨',
     searchUrl: 'https://www.perplexity.ai/search?q=',
     bang: '!ai',
     color: '#20B2AA',
