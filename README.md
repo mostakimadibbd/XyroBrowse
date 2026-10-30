@@ -26,6 +26,12 @@ To package for production:
 npm run build:desktop
 ```
 
+### Deploying Lite Mode to Vercel
+
+Vercel hosts the web/Lite version; it cannot run the Electron desktop browser. Import this repository into Vercel with the Vite framework preset and keep the repository's `vercel.json` settings. The deployment builds the frontend and exposes the `/api/search` and `/api/proxy` serverless functions.
+
+Set `BRAVE_API_KEY` in the Vercel project environment variables to enable Brave Search API fallback results. Without it, search tries DuckDuckGo and Wikipedia, then offers a direct link to the selected search engine. This fallback is useful but does not replace a commercial search engine's full indexed results.
+
 ### Browser features
 - Tabbed browsing with persisted regular tabs, per-tab history, pinning, and private/incognito tabs.
 - Address-bar navigation and search, search-engine selection, keyword shortcuts, suggestions from history and bookmarks, and inline arithmetic.

@@ -194,7 +194,21 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
         {/* Error State */}
         {error && (
           <div style={{ color: 'var(--chrome-danger)', padding: '16px 0' }}>
-            {error}
+            <p>{error}</p>
+            <button
+              onClick={() => onNavigate(`${currentEngine.searchUrl}${encodeURIComponent(query)}`)}
+              style={{
+                marginTop: 10,
+                padding: '8px 12px',
+                border: '1px solid var(--chrome-border-subtle)',
+                borderRadius: 6,
+                background: 'var(--chrome-toolbar-bg)',
+                color: 'var(--chrome-accent-blue)',
+                cursor: 'pointer',
+              }}
+            >
+              Open {currentEngine.name} search results
+            </button>
           </div>
         )}
 

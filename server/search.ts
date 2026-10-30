@@ -207,14 +207,18 @@ export async function performSearch(query: string, requestedEngine = 'Google'): 
     const braveApiKey = process.env.BRAVE_API_KEY;
     if (braveApiKey) {
       results = await fetchBraveApiResults(query, braveApiKey);
-      backend = 'Brave Search API';
-      warningNotice = 'DuckDuckGo blocked automated search from this server. Showing Brave Search results.';
+      if (results.length > 0) {
+        backend = 'Brave Search API';
+        warningNotice = 'DuckDuckGo blocked automated search from this server. Showing Brave Search results.';
+      }
     }
 
     if (results.length === 0) {
       results = await fetchWikipediaResults(query);
-      backend = 'Wikipedia Search API';
-      warningNotice = 'DuckDuckGo blocked automated search from this server. Showing Wikipedia encyclopedia results.';
+      if (results.length > 0) {
+        backend = 'Wikipedia Search API';
+        warningNotice = 'DuckDuckGo results were unavailable. Showing Wikipedia encyclopedia results.';
+      }
     }
   }
 

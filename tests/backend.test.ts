@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { isPrivateIp } from '../server/safeFetch.js';
 import { isBlocked, stripTrackingParams } from '../server/blocklist.js';
 import { rewriteHtml, resolveUrl } from '../server/rewriteHtml.js';
-import { decodeDdgUrl } from '../server/search.js';
+import { decodeDdgUrl, getDirectSearchUrl } from '../server/search.js';
 
 test('SSRF Protection - isPrivateIp blocks dangerous ranges', () => {
   // Loopback
@@ -84,4 +84,12 @@ test('Search - decodeDdgUrl extracts original destination URL', () => {
 
   const regular = 'https://example.com/article';
   assert.equal(decodeDdgUrl(regular), regular);
+});
+
+test('Search - direct fallback URLs honor the selected search engine', () => {
+  const query = 'browser privacy';
+  assert.equal(getDirectSearchUrl(query, 'Google'), 'https://www.google.com/search?q=browser%20privacy');
+  assert.equal(getDirectSearchUrl(query, 'Brave'), 'https://search.brave.com/search?q=browser%20privacy');
+  assert.equal(getDirectSearchUrl(query, 'DuckDuckGo'), 'https://duckduckgo.com/?q=browser%20privacy');
+  assert.equal(getDirectSearchUrl(query, 'Bing'), 'https://www.bing.com/search?q=browser%20privacy');
 });
