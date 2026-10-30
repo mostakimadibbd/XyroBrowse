@@ -4,7 +4,6 @@
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "regions": ["iad1", "sfo1", "lhr1", "hnd1", "sin1"],
   "functions": {
     "api/**/*.ts": {
       "maxDuration": 30,
