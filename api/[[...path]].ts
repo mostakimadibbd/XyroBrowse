@@ -3,7 +3,7 @@ import { stream } from 'hono/streaming';
 import { once } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { safeFetch, SsfError } from '../../server/safeFetch.js';
-import { rewriteHtml, rewriteCss } from '../../server/rewriteHtml.js';
+import { rewriteHtml, rewriteCss, toProxyUrl } from '../../server/rewriteHtml.js';
 import { extractArticle } from '../../server/reader.js';
 import { performSearch } from '../../server/search.js';
 import { getCookieJar, clearCookieJar } from '../../server/cookieJar.js';
@@ -92,7 +92,7 @@ app.post('/clear-data', async (c) => {
   return c.body(null, 204);
 });
 
-app.all('/proxy/:origin/**', async (c) => {
+app.all('/p/:origin/**', async (c) => {
   const encOrigin = c.req.param('origin');
   const path = c.req.param('*') || '';
   const queryStr = c.req.query() ? '?' + new URLSearchParams(c.req.query()).toString() : '';
@@ -285,6 +285,14 @@ app.get('/search', async (c) => {
   }
 });
 
+app.all('/page', (c) => {
+  const targetUrl = c.req.query('url');
+  if (!targetUrl) {
+    return c.text('Missing target URL', 400);
+  }
+  return c.redirect(toProxyUrl(targetUrl), 307);
+});
+
 app.get('/reader', async (c) => {
   const targetUrl = c.req.query('url');
   const privateSessionId = c.req.query('__xyro_sid');
@@ -390,6 +398,15 @@ export default async function handler(req: VercelRequest, res: ServerResponse): 
     const host = headers.get('x-forwarded-host')?.split(',')[0] || headers.get('host') || 'localhost';
     const protocol = headers.get('x-forwarded-proto')?.split(',')[0] || 'https';
     const url = new URL(req.url || '/', `${protocol}://${host}`);
+    if (url.pathname.startsWith('/p/')) {
+      url.pathname = `/api${url.pathname}`;
+    } else if (!url.pathname.startsWith('/api/')) {
+      url.pathname = `/api${url.pathname}`;
+    }
+
+    if (url.pathname.startsWith('/api/proxy/')) {
+      url.pathname = url.pathname.replace(/^\/api\/proxy\//, '/api/p/');
+    }
     const method = (req.method || 'GET').toUpperCase();
     const contentType = headers.get('content-type') || '';
     const body = method === 'GET' || method === 'HEAD'

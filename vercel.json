@@ -36,13 +36,9 @@
           "value": "camera=(), microphone=(), geolocation=(), interest-cohort=()"
         }
       ]
-    },
+    }
   ],
   "rewrites": [
-    {
-      "source": "/api/p/:origin/:path*",
-      "destination": "/api/proxy/:origin/:path*"
-    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

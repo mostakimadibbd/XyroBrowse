@@ -2,8 +2,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { performSearch } from '../server/search.js';
 import { searchRateLimiter } from '../server/rateLimit.js';
 
-interface VercelRequest extends IncomingMessage {}
-
 function sendJson(res: ServerResponse, statusCode: number, data: unknown): void {
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -11,7 +9,7 @@ function sendJson(res: ServerResponse, statusCode: number, data: unknown): void 
   res.end(JSON.stringify(data));
 }
 
-export default async function handler(req: VercelRequest, res: ServerResponse): Promise<void> {
+export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     sendJson(res, 405, { error: 'Method not allowed', code: 'ERR_METHOD_NOT_ALLOWED' });

@@ -192,7 +192,7 @@ export interface SafeFetchResponse {
   status: number;
   statusText: string;
   headers: Headers;
-  body: NodeJS.ReadableStream | null;
+  body: ReadableStream<Uint8Array> | null;
   buffer?: Buffer;
   contentType: string;
 }
@@ -328,7 +328,7 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}):
       status: res.status,
       statusText: res.statusText,
       headers: res.headers,
-      body: res.body as unknown as NodeJS.ReadableStream,
+      body: res.body,
       contentType,
     };
   }

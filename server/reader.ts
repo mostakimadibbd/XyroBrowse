@@ -1,5 +1,6 @@
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
+import { Readable } from 'node:stream';
 import { safeFetch } from './safeFetch.js';
 import type { CookieJar } from 'tough-cookie';
 
@@ -29,7 +30,7 @@ export async function extractArticle(
       html = fetched.buffer.toString('utf-8');
     } else if (fetched.body) {
       const chunks: Buffer[] = [];
-      for await (const chunk of fetched.body) {
+      for await (const chunk of Readable.fromWeb(fetched.body)) {
         chunks.push(Buffer.from(chunk));
       }
       html = Buffer.concat(chunks).toString('utf-8');

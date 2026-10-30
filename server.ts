@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
 import path from 'path';
 import crypto from 'crypto';
+import { Readable } from 'node:stream';
 import { safeFetch, SsfError } from './server/safeFetch.js';
 import { rewriteHtml, rewriteCss, fromProxyPath, toProxyUrl } from './server/rewriteHtml.js';
 import { extractArticle } from './server/reader.js';
@@ -201,7 +202,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       const MAX_REWRITE = 5 * 1024 * 1024;
 
       if (stream) {
-        for await (const chunk of stream) {
+        for await (const chunk of Readable.fromWeb(stream)) {
           chunks.push(Buffer.from(chunk));
           total += chunk.length;
           if (total > MAX_REWRITE) break;
@@ -231,7 +232,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       const MAX_REWRITE = 5 * 1024 * 1024;
 
       if (stream) {
-        for await (const chunk of stream) {
+        for await (const chunk of Readable.fromWeb(stream)) {
           chunks.push(Buffer.from(chunk));
           total += chunk.length;
           if (total > MAX_REWRITE) break;
@@ -253,7 +254,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
     // Non-HTML streaming passthrough (no size cap, Range & 206 supported)
     res.status(fetched.status);
     if (fetched.body) {
-      fetched.body.pipe(res);
+      Readable.fromWeb(fetched.body).pipe(res);
     } else {
       res.end();
     }
@@ -416,7 +417,7 @@ app.get('/api/download', async (req: Request, res: Response) => {
     res.setHeader('Content-Type', fetched.contentType || 'application/octet-stream');
     res.status(fetched.status);
     if (fetched.body) {
-      fetched.body.pipe(res);
+      Readable.fromWeb(fetched.body).pipe(res);
     } else {
       res.end();
     }
