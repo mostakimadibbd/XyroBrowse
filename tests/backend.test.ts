@@ -70,9 +70,9 @@ test('HTML Rewriter - proxies links, subresources, and injects shim', () => {
   // Check that tracker image was blocked
   assert.equal(blockedCount, 1);
   // Check that stylesheet was proxied
-  assert.equal(rewritten.includes('/api/page?url=https%3A%2F%2Fexample.com%2Fstyle.css'), true);
+  assert.equal(rewritten.includes('/api/p/https%3A%2F%2Fexample.com/style.css'), true);
   // Check that link was rewritten
-  assert.equal(rewritten.includes('/api/page?url=https%3A%2F%2Fexample.com%2Fabout'), true);
+  assert.equal(rewritten.includes('/api/p/https%3A%2F%2Fexample.com/about'), true);
   // Check that shim was injected
   assert.equal(rewritten.includes('xyro-navigate'), true);
 });

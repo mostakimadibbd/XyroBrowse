@@ -1,5 +1,5 @@
 /**
- * In-memory token bucket rate limiter for client requests.
+ * Token bucket rate limiter with unreferenced timer for non-blocking process lifecycle.
  */
 
 interface Bucket {
@@ -12,12 +12,12 @@ export class RateLimiter {
   private maxTokens: number;
   private refillRatePerSec: number;
 
-  constructor(maxTokens = 120, refillRatePerSec = 4) {
+  constructor(maxTokens = 600, refillRatePerSec = 50) {
     this.maxTokens = maxTokens;
     this.refillRatePerSec = refillRatePerSec;
 
-    // Periodic cleanup of stale IPs every 5 minutes
-    setInterval(() => {
+    // Periodic cleanup every 5 minutes, with unref() so Node doesn't stay alive on exit
+    const timer = setInterval(() => {
       const now = Date.now();
       for (const [ip, bucket] of this.buckets.entries()) {
         if (now - bucket.lastRefill > 300000) {
@@ -25,6 +25,10 @@ export class RateLimiter {
         }
       }
     }, 300000);
+
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
   }
 
   public check(ip: string): boolean {
@@ -50,4 +54,7 @@ export class RateLimiter {
   }
 }
 
-export const defaultRateLimiter = new RateLimiter();
+// Dedicated rate limiters
+export const searchRateLimiter = new RateLimiter(300, 25);
+export const readerRateLimiter = new RateLimiter(300, 25);
+export const documentNavRateLimiter = new RateLimiter(600, 50);

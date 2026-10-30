@@ -493,6 +493,8 @@ export default function App() {
       {/* 4. Main Viewport */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <Viewport
+          tabs={tabs}
+          activeTabId={activeTabId}
           tab={activeTab}
           currentEngine={currentEngine}
           bookmarks={bookmarks}

@@ -10,7 +10,24 @@ import { AboutPage } from '../pages/AboutPage';
 import { SourceViewer } from './SourceViewer';
 import { ReaderView } from './ReaderView';
 
+export function toProxyUrl(url: string): string {
+  try {
+    const trimmed = url.trim();
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      return url;
+    }
+    const u = new URL(trimmed);
+    const encOrigin = encodeURIComponent(u.origin);
+    const sub = u.pathname + u.search + u.hash;
+    return `/api/p/${encOrigin}${sub.startsWith('/') ? sub : '/' + sub}`;
+  } catch {
+    return url;
+  }
+}
+
 interface ViewportProps {
+  tabs: Tab[];
+  activeTabId: string;
   tab: Tab;
   currentEngine: SearchEngine;
   bookmarks: BookmarkNode[];
@@ -34,6 +51,8 @@ interface ViewportProps {
 }
 
 export const Viewport: React.FC<ViewportProps> = ({
+  tabs,
+  activeTabId,
   tab,
   currentEngine,
   bookmarks,
@@ -55,18 +74,30 @@ export const Viewport: React.FC<ViewportProps> = ({
   onOpenClearDialog,
   onExitReaderMode,
 }) => {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const isElectron = typeof window !== 'undefined' && (window as any).xyro?.platform === 'electron';
 
-  // Handle postMessage events from the sandboxed iframe shim
+  // Handle postMessage events with strict event.source check
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
       const data = e.data;
       if (!data || !data.type) return;
 
+      // Validate event.source matches an active iframe
+      const iframes = Array.from(document.querySelectorAll('iframe.chrome-iframe')) as HTMLIFrameElement[];
+      const isFromGuest = iframes.some((f) => f.contentWindow === e.source);
+      if (!isFromGuest) return;
+
       if (data.type === 'xyro-navigate' && data.url) {
+        onNavigate(data.url);
+      } else if (data.type === 'xyro-urlchange' && data.url) {
         onNavigate(data.url);
       } else if (data.type === 'xyro-loaded') {
         if (data.title) onUpdateTitle(data.title);
+        if (typeof data.blocked === 'number') {
+          onUpdateBlockedCount(data.blocked);
+        }
+      } else if (data.type === 'xyro-open' && data.url) {
+        onNavigate(data.url);
       } else if (data.type === 'xyro-contextmenu') {
         onContextMenu({
           x: data.x,
@@ -82,24 +113,9 @@ export const Viewport: React.FC<ViewportProps> = ({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onNavigate, onUpdateTitle, onContextMenu, onKeyShortcut]);
+  }, [onNavigate, onUpdateTitle, onUpdateBlockedCount, onContextMenu, onKeyShortcut]);
 
-  // Extract blocked tracker count from response header if available
-  useEffect(() => {
-    if (tab.url.startsWith('http://') || tab.url.startsWith('https://')) {
-      // Query server for blocked metrics
-      fetch(`/api/page?url=${encodeURIComponent(tab.url)}`, { method: 'HEAD' })
-        .then((res) => {
-          const blocked = res.headers.get('x-xyro-blocked');
-          if (blocked) {
-            onUpdateBlockedCount(parseInt(blocked, 10));
-          }
-        })
-        .catch(() => {});
-    }
-  }, [tab.url, onUpdateBlockedCount]);
-
-  // Reader mode takes precedence if active
+  // Reader mode takes precedence if active for current tab
   if (tab.isReaderMode && tab.readerContent) {
     return <ReaderView article={tab.readerContent} onClose={onExitReaderMode} />;
   }
@@ -110,6 +126,8 @@ export const Viewport: React.FC<ViewportProps> = ({
   }
 
   // Internal Chrome pages
+  const isInternal = tab.url.startsWith('chrome://') || tab.url.startsWith('xyro://');
+
   if (tab.url === 'chrome://newtab' || tab.url === 'xyro://newtab') {
     return <NewTabPage currentEngine={currentEngine} onNavigate={onNavigate} />;
   }
@@ -170,26 +188,56 @@ export const Viewport: React.FC<ViewportProps> = ({
     return <AboutPage />;
   }
 
-  // Standard web page inside sandboxed iframe
-  const proxyUrl = `/api/page?url=${encodeURIComponent(tab.url)}`;
-  const zoomScale = tab.zoom / 100;
+  // Render webview or iframe for all web tabs so tabs remain mounted without reload
+  const webTabs = tabs.filter(
+    (t) => !t.url.startsWith('chrome://') && !t.url.startsWith('xyro://') && !t.url.startsWith('view-source:')
+  );
 
   return (
     <div className="chrome-viewport" onContextMenu={(e) => e.preventDefault()}>
-      <iframe
-        ref={iframeRef}
-        key={tab.url}
-        src={proxyUrl}
-        title={tab.title}
-        className={`chrome-iframe ${tab.autoDarkMode ? 'inverted-dark' : ''}`}
-        sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
-        style={{
-          transform: zoomScale !== 1 ? `scale(${zoomScale})` : undefined,
-          transformOrigin: '0 0',
-          width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
-          height: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
-        }}
-      />
+      {webTabs.map((t) => {
+        const isActive = t.id === activeTabId && !isInternal;
+        const zoomScale = t.zoom / 100;
+        const proxySrc = toProxyUrl(t.url);
+
+        if (isElectron) {
+          // Render Chromium <webview> in desktop mode
+          return (
+            // @ts-ignore
+            <webview
+              key={t.id}
+              data-tab-id={t.id}
+              src={t.url}
+              partition={t.isIncognito ? undefined : 'persist:xyro'}
+              className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
+              style={{
+                display: isActive ? 'flex' : 'none',
+                width: '100%',
+                height: '100%',
+              }}
+            />
+          );
+        }
+
+        // Render Sandboxed IFrame in Lite Mode (key={t.id} prevents reloading on switch)
+        return (
+          <iframe
+            key={t.id}
+            data-tab-id={t.id}
+            src={proxySrc}
+            title={t.title}
+            className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
+            sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+            style={{
+              display: isActive ? 'block' : 'none',
+              transform: zoomScale !== 1 ? `scale(${zoomScale})` : undefined,
+              transformOrigin: '0 0',
+              width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
+              height: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
+            }}
+          />
+        );
+      })}
     </div>
   );
 };

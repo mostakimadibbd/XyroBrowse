@@ -19,7 +19,16 @@ export async function extractArticle(targetUrl: string): Promise<ReaderArticle> 
   try {
     // 1. Fetch live page HTML via safeFetch
     const fetched = await safeFetch(targetUrl);
-    const html = fetched.buffer.toString('utf-8');
+    let html = '';
+    if (fetched.buffer) {
+      html = fetched.buffer.toString('utf-8');
+    } else if (fetched.body) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of fetched.body) {
+        chunks.push(Buffer.from(chunk));
+      }
+      html = Buffer.concat(chunks).toString('utf-8');
+    }
 
     // 2. Parse with JSDOM and Mozilla Readability
     const dom = new JSDOM(html, { url: fetched.finalUrl });

@@ -4,6 +4,7 @@ export interface SearchResultItem {
   title: string;
   url: string;
   snippet: string;
+  sourceBackend?: string;
 }
 
 export interface KnowledgePanel {
@@ -17,8 +18,11 @@ export interface KnowledgePanel {
 export interface SearchResponse {
   query: string;
   engine: string;
+  backend: string;
   results: SearchResultItem[];
   knowledgePanel?: KnowledgePanel;
+  warningNotice?: string;
+  canOpenInNewTabUrl?: string;
 }
 
 /**
@@ -72,81 +76,153 @@ async function fetchWikiKnowledge(query: string): Promise<KnowledgePanel | undef
 }
 
 /**
- * Searches the web via DuckDuckGo HTML parser and returns structured results.
+ * Fetches Wikipedia search API as a reliable backend.
  */
-export async function performSearch(query: string, engineName = 'Google'): Promise<SearchResponse> {
-  const [wikiKnowledge, ddgHtml] = await Promise.all([
-    fetchWikiKnowledge(query),
-    (async () => {
-      try {
-        const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-        const res = await fetch(ddgUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-          },
-          signal: AbortSignal.timeout(6000),
-        });
-        if (res.ok) {
-          return await res.text();
-        }
-      } catch {
-        // Fallback
-      }
-      return '';
-    })(),
-  ]);
-
+async function fetchWikipediaResults(query: string): Promise<SearchResultItem[]> {
   const results: SearchResultItem[] = [];
-
-  if (ddgHtml) {
-    const $ = cheerio.load(ddgHtml);
-    $('.result').each((_, el) => {
-      const linkEl = $(el).find('.result__url');
-      const titleEl = $(el).find('.result__title a');
-      const snippetEl = $(el).find('.result__snippet');
-
-      const rawHref = titleEl.attr('href') || linkEl.attr('href');
-      const title = titleEl.text().trim();
-      const snippet = snippetEl.text().trim();
-
-      if (rawHref && title) {
-        const decodedUrl = decodeDdgUrl(rawHref);
-        if (decodedUrl.startsWith('http')) {
-          results.push({
-            title,
-            url: decodedUrl,
-            snippet,
-          });
-        }
+  try {
+    const wikiSearchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&origin=*`;
+    const res = await fetch(wikiSearchUrl, { signal: AbortSignal.timeout(3500) });
+    if (res.ok) {
+      const data = await res.json();
+      const hits = data?.query?.search || [];
+      for (const hit of hits.slice(0, 10)) {
+        results.push({
+          title: hit.title,
+          url: `https://en.wikipedia.org/wiki/${encodeURIComponent(hit.title.replace(/\s+/g, '_'))}`,
+          snippet: (hit.snippet || '').replace(/<[^>]*>/g, ''),
+          sourceBackend: 'Wikipedia OpenSearch API',
+        });
       }
+    }
+  } catch {}
+  return results;
+}
+
+/**
+ * Fetches Brave Search API if BRAVE_API_KEY is configured.
+ */
+async function fetchBraveApiResults(query: string, apiKey: string): Promise<SearchResultItem[]> {
+  const results: SearchResultItem[] = [];
+  try {
+    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10`;
+    const res = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Subscription-Token': apiKey,
+      },
+      signal: AbortSignal.timeout(4000),
     });
+    if (res.ok) {
+      const data = await res.json();
+      const webResults = data?.web?.results || [];
+      for (const r of webResults) {
+        results.push({
+          title: r.title,
+          url: r.url,
+          snippet: r.description || '',
+          sourceBackend: 'Brave Search API',
+        });
+      }
+    }
+  } catch {}
+  return results;
+}
+
+/**
+ * Searches the web honestly, detecting DDG challenge/anomaly pages,
+ * falling back to Brave or Wikipedia with clear labeling and warnings.
+ */
+export async function performSearch(query: string, requestedEngine = 'Google'): Promise<SearchResponse> {
+  const wikiKnowledgePromise = fetchWikiKnowledge(query);
+
+  let backend = 'DuckDuckGo HTML';
+  let warningNotice: string | undefined;
+  let results: SearchResultItem[] = [];
+  let ddgBlocked = false;
+
+  // Attempt DDG fetch
+  try {
+    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const res = await fetch(ddgUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (res.status === 202) {
+      ddgBlocked = true;
+    } else if (res.ok) {
+      const html = await res.text();
+      if (html.includes('anomaly') || html.includes('challenge') || html.includes('bots') || html.includes('captcha')) {
+        ddgBlocked = true;
+      } else {
+        const $ = cheerio.load(html);
+        $('.result').each((_, el) => {
+          const linkEl = $(el).find('.result__url');
+          const titleEl = $(el).find('.result__title a');
+          const snippetEl = $(el).find('.result__snippet');
+
+          const rawHref = titleEl.attr('href') || linkEl.attr('href');
+          const title = titleEl.text().trim();
+          const snippet = snippetEl.text().trim();
+
+          if (rawHref && title) {
+            const decodedUrl = decodeDdgUrl(rawHref);
+            if (decodedUrl.startsWith('http')) {
+              results.push({
+                title,
+                url: decodedUrl,
+                snippet,
+                sourceBackend: 'DuckDuckGo Web',
+              });
+            }
+          }
+        });
+      }
+    } else {
+      ddgBlocked = true;
+    }
+  } catch {
+    ddgBlocked = true;
   }
 
-  // Fallback: If DDG scraper was throttled or returned 0 hits, fetch Wikipedia search API directly
-  if (results.length === 0) {
-    try {
-      const wikiSearchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&origin=*`;
-      const res = await fetch(wikiSearchUrl, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) {
-        const data = await res.json();
-        const hits = data?.query?.search || [];
-        for (const hit of hits.slice(0, 10)) {
-          results.push({
-            title: hit.title,
-            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(hit.title.replace(/\s+/g, '_'))}`,
-            snippet: (hit.snippet || '').replace(/<[^>]*>/g, ''),
-          });
-        }
-      }
-    } catch {
-      // Ignore
+  // Handle DDG block / fallback
+  if (ddgBlocked || results.length === 0) {
+    const braveApiKey = process.env.BRAVE_API_KEY;
+    if (braveApiKey) {
+      results = await fetchBraveApiResults(query, braveApiKey);
+      backend = 'Brave Search API';
+      warningNotice = 'DuckDuckGo blocked automated search from this server. Showing Brave Search results.';
     }
+
+    if (results.length === 0) {
+      results = await fetchWikipediaResults(query);
+      backend = 'Wikipedia Search API';
+      warningNotice = 'DuckDuckGo blocked automated search from this server. Showing Wikipedia encyclopedia results.';
+    }
+  }
+
+  const knowledgePanel = await wikiKnowledgePromise;
+
+  // Real engine URL for "Open in new tab"
+  let directEngineUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+  if (requestedEngine.toLowerCase() === 'brave') {
+    directEngineUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
+  } else if (requestedEngine.toLowerCase() === 'duckduckgo') {
+    directEngineUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
+  } else if (requestedEngine.toLowerCase() === 'bing') {
+    directEngineUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
   }
 
   return {
     query,
-    engine: engineName,
+    engine: requestedEngine,
+    backend,
     results,
-    knowledgePanel: wikiKnowledge,
+    knowledgePanel,
+    warningNotice,
+    canOpenInNewTabUrl: directEngineUrl,
   };
 }

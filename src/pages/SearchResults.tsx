@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { SearchEngine } from '../types';
-import { Search, Globe, ExternalLink, BookOpen } from 'lucide-react';
+import { Search, Globe, ExternalLink, BookOpen, AlertCircle } from 'lucide-react';
 import { getFaviconUrl } from '../lib/url';
 
 interface SearchResultItem {
   title: string;
   url: string;
   snippet: string;
+  sourceBackend?: string;
 }
 
 interface KnowledgePanel {
@@ -30,6 +31,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
 }) => {
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgePanel | undefined>();
+  const [backend, setBackend] = useState<string>('');
+  const [warningNotice, setWarningNotice] = useState<string | undefined>();
+  const [canOpenInNewTabUrl, setCanOpenInNewTabUrl] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'all' | 'web' | 'wiki' | 'code'>('all');
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +52,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
         if (!cancelled) {
           setResults(data.results || []);
           setKnowledge(data.knowledgePanel);
+          setBackend(data.backend || 'Search API');
+          setWarningNotice(data.warningNotice);
+          setCanOpenInNewTabUrl(data.canOpenInNewTabUrl);
           setLoading(false);
         }
       })
@@ -84,22 +91,65 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
     >
       <div style={{ maxWidth: 840 }}>
         {/* Search Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
           <h2 style={{ fontSize: 18, fontWeight: 500 }}>
             Results for <span style={{ color: 'var(--chrome-accent-blue)' }}>"{query}"</span>
           </h2>
-          <span
+          {backend && (
+            <span
+              style={{
+                fontSize: 11,
+                backgroundColor: 'var(--chrome-button-hover)',
+                padding: '2px 8px',
+                borderRadius: 10,
+                color: 'var(--chrome-text-secondary)',
+              }}
+            >
+              Backend: {backend}
+            </span>
+          )}
+        </div>
+
+        {/* Warning Banner when engine is challenged or fallback is used */}
+        {warningNotice && (
+          <div
             style={{
-              fontSize: 11,
-              backgroundColor: 'var(--chrome-button-hover)',
-              padding: '2px 8px',
-              borderRadius: 10,
-              color: 'var(--chrome-text-secondary)',
+              backgroundColor: '#332b18',
+              border: '1px solid #73510d',
+              borderRadius: 6,
+              padding: '10px 14px',
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              fontSize: 12,
+              color: '#fdd663',
             }}
           >
-            {currentEngine.name}
-          </span>
-        </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>{warningNotice}</span>
+            </div>
+            {canOpenInNewTabUrl && (
+              <button
+                onClick={() => onNavigate(canOpenInNewTabUrl)}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #fdd663',
+                  borderRadius: 4,
+                  color: '#fdd663',
+                  fontSize: 11,
+                  padding: '3px 8px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Open {currentEngine.name} in tab
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Filter Tabs */}
         <div

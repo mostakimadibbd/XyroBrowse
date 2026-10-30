@@ -10,6 +10,39 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      (function() {
+        // Prevent benign HMR/WebSocket connection errors in preview iframe from bubbling
+        function isViteHmrError(msg, stack, filename) {
+          var s = ((msg || '') + ' ' + (stack || '') + ' ' + (filename || '')).toLowerCase();
+          return s.indexOf('@vite/client') !== -1 ||
+                 s.indexOf('vite-hmr') !== -1 ||
+                 s.indexOf('websocket') !== -1 ||
+                 s.indexOf('closed without opened') !== -1;
+        }
+
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event.reason;
+          var msg = (reason && (reason.message || String(reason))) || '';
+          var stack = (reason && reason.stack) || '';
+          if (isViteHmrError(msg, stack, '')) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        window.addEventListener('error', function(event) {
+          var msg = event.message || '';
+          var filename = event.filename || '';
+          var stack = (event.error && event.error.stack) || '';
+          if (isViteHmrError(msg, stack, filename)) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

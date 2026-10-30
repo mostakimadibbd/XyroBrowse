@@ -1,66 +1,217 @@
 /**
  * Client shim script injected into proxied web pages to provide isolation,
- * navigation capture, and parent-frame bidirectional messaging.
+ * API proxying, DOM attribute interception, and parent-frame bidirectional messaging.
  */
 
-export function getInjectedScript(targetUrl: string): string {
+export function getInjectedScript(targetUrl: string, initialBlockedCount = 0, pageId = ''): string {
   return `
 (function() {
   const TARGET_URL = ${JSON.stringify(targetUrl)};
+  const INITIAL_BLOCKED = ${initialBlockedCount};
+  const PAGE_ID = ${JSON.stringify(pageId)};
+
   let targetOrigin = '';
   try {
     targetOrigin = new URL(TARGET_URL).origin;
   } catch(e) {}
 
-  // 1. Scoped Storage Polyfills
-  const storagePrefix = 'xyro_stor_' + encodeURIComponent(targetOrigin) + '_';
-  const memoryStore = new Map();
+  function resolveToTarget(url) {
+    try {
+      if (!url) return '';
+      if (url.startsWith('data:') || url.startsWith('javascript:') || url.startsWith('blob:') || url.startsWith('#')) {
+        return url;
+      }
+      return new URL(url, TARGET_URL).toString();
+    } catch(e) {
+      return url;
+    }
+  }
 
-  const createScopedStorage = () => ({
-    getItem: (key) => memoryStore.get(key) || null,
-    setItem: (key, val) => memoryStore.set(key, String(val)),
-    removeItem: (key) => memoryStore.delete(key),
-    clear: () => memoryStore.clear(),
-    key: (i) => Array.from(memoryStore.keys())[i] || null,
-    get length() { return memoryStore.size; }
-  });
+  function toProxyPath(url) {
+    try {
+      if (!url || typeof url !== 'string') return url;
+      if (url.startsWith('data:') || url.startsWith('javascript:') || url.startsWith('blob:') || url.startsWith('#')) {
+        return url;
+      }
+      const resolved = resolveToTarget(url);
+      const u = new URL(resolved);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return url;
+      const encOrigin = encodeURIComponent(u.origin);
+      const sub = u.pathname + u.search + u.hash;
+      return '/api/p/' + encOrigin + (sub.startsWith('/') ? sub : '/' + sub);
+    } catch(e) {
+      return url;
+    }
+  }
+
+  // 1. Scoped In-Memory Storage Polyfills (since sandbox lacks allow-same-origin)
+  const memoryLocal = new Map();
+  const memorySession = new Map();
+
+  function createStoragePolyfill(store) {
+    return {
+      getItem(k) { return store.has(String(k)) ? store.get(String(k)) : null; },
+      setItem(k, v) { store.set(String(k), String(v)); },
+      removeItem(k) { store.delete(String(k)); },
+      clear() { store.clear(); },
+      key(i) { return Array.from(store.keys())[i] || null; },
+      get length() { return store.size; }
+    };
+  }
 
   try {
-    Object.defineProperty(window, 'localStorage', { value: createScopedStorage(), configurable: true });
-    Object.defineProperty(window, 'sessionStorage', { value: createScopedStorage(), configurable: true });
+    Object.defineProperty(window, 'localStorage', { value: createStoragePolyfill(memoryLocal), configurable: true });
+    Object.defineProperty(window, 'sessionStorage', { value: createStoragePolyfill(memorySession), configurable: true });
   } catch(e) {}
 
-  // 2. Intercept window.open
+  // 2. Cookie Jar Interceptor
+  let cookieStore = '';
+  try {
+    Object.defineProperty(document, 'cookie', {
+      get() { return cookieStore; },
+      set(val) {
+        if (typeof val === 'string') {
+          const parts = val.split(';')[0];
+          if (parts) {
+            cookieStore = cookieStore ? cookieStore + '; ' + parts : parts;
+          }
+        }
+      },
+      configurable: true
+    });
+  } catch(e) {}
+
+  // 3. ServiceWorker polyfill (clean rejection)
+  try {
+    if ('serviceWorker' in navigator && navigator.serviceWorker) {
+      navigator.serviceWorker.register = function() {
+        return Promise.reject(new Error('Service workers not supported in Lite mode'));
+      };
+    }
+  } catch(e) {}
+
+  // 4. WebSocket Graceful Closure Polyfill
+  const OriginalWebSocket = window.WebSocket;
+  window.WebSocket = function(url, protocols) {
+    const target = new EventTarget();
+    target.url = url;
+    target.readyState = 3; // CLOSED
+    setTimeout(function() {
+      const errEvt = new Event('error');
+      target.dispatchEvent(errEvt);
+      if (typeof target.onerror === 'function') target.onerror(errEvt);
+      const closeEvt = new CloseEvent('close', { code: 1006, reason: 'WebSockets not supported in Lite mode', wasClean: false });
+      target.dispatchEvent(closeEvt);
+      if (typeof target.onclose === 'function') target.onclose(closeEvt);
+    }, 10);
+    target.send = function() {};
+    target.close = function() {};
+    return target;
+  };
+
+  // 5. Intercept fetch, Request, XMLHttpRequest, sendBeacon, EventSource, Worker
+  const originalFetch = window.fetch;
+  window.fetch = function(input, init) {
+    let url = input;
+    if (typeof input === 'string') {
+      url = toProxyPath(input);
+    } else if (input && typeof input.url === 'string') {
+      input = new Request(toProxyPath(input.url), input);
+    }
+    return originalFetch.call(this, url, init);
+  };
+
+  const originalXhrOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+    const proxied = toProxyPath(url);
+    return originalXhrOpen.call(this, method, proxied, async !== false, user, password);
+  };
+
+  if (navigator.sendBeacon) {
+    const originalSendBeacon = navigator.sendBeacon;
+    navigator.sendBeacon = function(url, data) {
+      return originalSendBeacon.call(this, toProxyPath(url), data);
+    };
+  }
+
+  if (window.EventSource) {
+    const OriginalEventSource = window.EventSource;
+    window.EventSource = function(url, conf) {
+      return new OriginalEventSource(toProxyPath(url), conf);
+    };
+  }
+
+  if (window.Worker) {
+    const OriginalWorker = window.Worker;
+    window.Worker = function(scriptURL, options) {
+      return new OriginalWorker(toProxyPath(scriptURL), options);
+    };
+  }
+
+  // 6. Element Prototype Setters and setAttribute
+  const originalSetAttribute = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function(name, value) {
+    const lower = name.toLowerCase();
+    if ((lower === 'src' || lower === 'href' || lower === 'poster' || lower === 'action' || lower === 'data') && typeof value === 'string') {
+      return originalSetAttribute.call(this, name, toProxyPath(value));
+    }
+    return originalSetAttribute.call(this, name, value);
+  };
+
+  // 7. History API Interception
+  const originalPushState = history.pushState;
+  history.pushState = function(state, unused, url) {
+    if (url) {
+      const resolved = resolveToTarget(String(url));
+      window.parent.postMessage({ type: 'xyro-urlchange', url: resolved, replace: false }, '*');
+    }
+    return originalPushState.apply(this, arguments);
+  };
+
+  const originalReplaceState = history.replaceState;
+  history.replaceState = function(state, unused, url) {
+    if (url) {
+      const resolved = resolveToTarget(String(url));
+      window.parent.postMessage({ type: 'xyro-urlchange', url: resolved, replace: true }, '*');
+    }
+    return originalReplaceState.apply(this, arguments);
+  };
+
+  window.addEventListener('hashchange', function() {
+    window.parent.postMessage({ type: 'xyro-urlchange', url: window.location.href, replace: false }, '*');
+  });
+
+  // 8. Intercept window.open
   window.open = function(url) {
     if (url) {
-      const fullUrl = new URL(url, TARGET_URL).toString();
-      window.parent.postMessage({ type: 'xyro-navigate', url: fullUrl }, '*');
+      const fullUrl = resolveToTarget(url);
+      window.parent.postMessage({ type: 'xyro-open', url: fullUrl }, '*');
     }
     return null;
   };
 
-  // 3. Intercept Link Clicks
+  // 9. Intercept Link Clicks
   document.addEventListener('click', function(e) {
     const link = e.target.closest('a');
     if (link && link.href) {
+      const rawHref = link.getAttribute('href') || link.href;
+      if (rawHref.startsWith('javascript:') || rawHref.startsWith('#')) return;
       e.preventDefault();
       e.stopPropagation();
-      try {
-        const resolved = new URL(link.getAttribute('href') || link.href, TARGET_URL).toString();
-        window.parent.postMessage({ type: 'xyro-navigate', url: resolved }, '*');
-      } catch (err) {
-        window.parent.postMessage({ type: 'xyro-navigate', url: link.href }, '*');
-      }
+      const resolved = resolveToTarget(rawHref);
+      window.parent.postMessage({ type: 'xyro-navigate', url: resolved }, '*');
     }
   }, true);
 
-  // 4. Intercept Form Submissions
+  // 10. Intercept Form Submissions (POST & GET)
   document.addEventListener('submit', function(e) {
     const form = e.target;
     if (form && form.action) {
       e.preventDefault();
       const method = (form.method || 'GET').toUpperCase();
-      const resolved = new URL(form.getAttribute('action') || form.action, TARGET_URL);
+      const rawAction = form.getAttribute('action') || form.action;
+      const resolved = new URL(resolveToTarget(rawAction));
+
       if (method === 'GET') {
         const formData = new FormData(form);
         for (const [key, val] of formData.entries()) {
@@ -68,13 +219,14 @@ export function getInjectedScript(targetUrl: string): string {
         }
         window.parent.postMessage({ type: 'xyro-navigate', url: resolved.toString() }, '*');
       } else {
-        // Fallback navigate to form action
-        window.parent.postMessage({ type: 'xyro-navigate', url: resolved.toString() }, '*');
+        // Forward POST submission through proxy form submission
+        form.action = toProxyPath(rawAction);
+        form.submit();
       }
     }
   }, true);
 
-  // 5. Scroll and Context Menu Events to Parent
+  // 11. Scroll, ContextMenu & Full Shortcut Forwarding
   window.addEventListener('scroll', function() {
     window.parent.postMessage({
       type: 'xyro-scroll',
@@ -92,18 +244,24 @@ export function getInjectedScript(targetUrl: string): string {
       type: 'xyro-contextmenu',
       x: e.clientX,
       y: e.clientY,
-      linkUrl: link ? link.href : null,
-      srcUrl: img ? img.src : null,
+      linkUrl: link ? resolveToTarget(link.getAttribute('href') || link.href) : null,
+      srcUrl: img ? resolveToTarget(img.getAttribute('src') || img.src) : null,
       selectionText: selectedText || null
     }, '*');
   });
 
-  // 6. Forward Keyboard Shortcuts to Browser Shell
   window.addEventListener('keydown', function(e) {
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-    const ctrlKey = isMac ? e.metaKey : e.ctrlKey;
+    const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+    const k = e.key.toLowerCase();
 
-    if (ctrlKey && (e.key === 't' || e.key === 'w' || e.key === 'r' || e.key === 'f' || e.key === 'p' || e.key === 'l')) {
+    // Shortcuts: Ctrl/Cmd + T, W, L, R, F, P, D, H, J, +, -, 0; Shift + T, N, B; Alt + Left/Right; F5, F11, Esc
+    const isSpecialKey = e.key === 'F5' || e.key === 'F11' || e.key === 'Escape' ||
+      (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) ||
+      (ctrlOrCmd && ['t', 'w', 'l', 'r', 'f', 'p', 'd', 'h', 'j', '+', '-', '=', '0'].includes(k)) ||
+      (ctrlOrCmd && e.shiftKey && ['t', 'n', 'b'].includes(k));
+
+    if (isSpecialKey) {
       e.preventDefault();
       window.parent.postMessage({
         type: 'xyro-keydown',
@@ -116,7 +274,7 @@ export function getInjectedScript(targetUrl: string): string {
     }
   });
 
-  // 7. Listen for Parent Frame Commands
+  // 12. Listen for Parent Frame Commands
   window.addEventListener('message', function(e) {
     const data = e.data;
     if (!data || !data.type) return;
@@ -134,14 +292,28 @@ export function getInjectedScript(targetUrl: string): string {
     }
   });
 
-  // 8. Loaded Notification
-  window.addEventListener('DOMContentLoaded', function() {
+  // 13. Notify Parent Frame on Load
+  function notifyLoaded() {
+    let faviconUrl = '';
+    const iconLink = document.querySelector('link[rel*="icon"]');
+    if (iconLink && iconLink.href) {
+      faviconUrl = resolveToTarget(iconLink.getAttribute('href') || iconLink.href);
+    }
     window.parent.postMessage({
       type: 'xyro-loaded',
       url: TARGET_URL,
-      title: document.title || TARGET_URL
+      title: document.title || TARGET_URL,
+      faviconUrl: faviconUrl,
+      blocked: INITIAL_BLOCKED,
+      pageId: PAGE_ID
     }, '*');
-  });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    notifyLoaded();
+  } else {
+    window.addEventListener('DOMContentLoaded', notifyLoaded);
+  }
 })();
 `;
 }

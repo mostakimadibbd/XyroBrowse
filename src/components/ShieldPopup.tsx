@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, CheckCircle, AlertTriangle, EyeOff, Lock } from 'lucide-react';
+import { Shield, CheckCircle, EyeOff, Lock, Info, AlertTriangle } from 'lucide-react';
 
 interface ShieldPopupProps {
   url: string;
@@ -21,6 +21,8 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
     if (url.startsWith('http')) hostname = new URL(url).hostname;
   } catch {}
 
+  const isElectron = typeof window !== 'undefined' && (window as any).xyro?.platform === 'electron';
+
   return (
     <>
       <div
@@ -36,7 +38,7 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
         style={{
           top: 42,
           right: 50,
-          width: 320,
+          width: 330,
           padding: 16,
           zIndex: 160,
         }}
@@ -59,7 +61,7 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
           </label>
         </div>
 
-        <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginBottom: 12 }}>
           Site protection for <span style={{ color: 'var(--chrome-text-primary)' }}>{hostname}</span>
         </div>
 
@@ -70,11 +72,11 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
             border: '1px solid var(--chrome-border-subtle)',
             borderRadius: 6,
             padding: 12,
-            marginBottom: 16,
+            marginBottom: 14,
             textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#81c995' }}>
+          <div style={{ fontSize: 26, fontWeight: 700, color: '#81c995' }}>
             {shieldsEnabled ? blockedCount : 0}
           </div>
           <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)' }}>
@@ -83,20 +85,35 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
         </div>
 
         {/* Details list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <EyeOff size={14} style={{ color: '#81c995' }} />
-            <span>Cross-site tracker blocking (EasyList/Peter Lowe)</span>
+            <EyeOff size={14} style={{ color: '#81c995', flexShrink: 0 }} />
+            <span>EasyList & EasyPrivacy rule engine</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Lock size={14} style={{ color: '#81c995' }} />
+            <Lock size={14} style={{ color: '#81c995', flexShrink: 0 }} />
             <span>Automatic tracking query parameter stripping</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CheckCircle size={14} style={{ color: '#81c995' }} />
-            <span>SSRF & private subnet connection protection</span>
+            <CheckCircle size={14} style={{ color: '#81c995', flexShrink: 0 }} />
+            <span>SSRF & DNS rebinding protection</span>
           </div>
         </div>
+
+        {/* Honest Filter List Notice */}
+        <div style={{ fontSize: 11, color: 'var(--chrome-text-secondary)', borderTop: '1px solid var(--chrome-border-subtle)', paddingTop: 10, marginBottom: 10 }}>
+          YouTube and certain media platforms actively fight blockers; blocking coverage depends on updated filter lists.
+        </div>
+
+        {/* Platform Notice */}
+        {!isElectron && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', backgroundColor: '#303134', padding: 8, borderRadius: 6, fontSize: 11, color: '#e8eaed' }}>
+            <Info size={14} style={{ color: '#8ab4f8', flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <strong>Lite mode:</strong> pages are rendered through a proxy, and many modern sites will not work. Use the desktop app for full compatibility.
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
