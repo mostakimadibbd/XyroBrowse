@@ -1,0 +1,6 @@
+{
+  "name": "XyroBrowse",
+  "description": "Flagship, ultra-fast Chromium-inspired cross-platform web browser shell featuring XyroShields privacy guard, multi-engine Omnibox, and XyroBoost memory manager.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
