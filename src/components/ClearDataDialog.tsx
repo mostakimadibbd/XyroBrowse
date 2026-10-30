@@ -7,7 +7,7 @@ interface ClearDataDialogProps {
     clearHistory: boolean;
     clearCookies: boolean;
     clearCache: boolean;
-  }) => void;
+  }) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -16,16 +16,21 @@ export const ClearDataDialog: React.FC<ClearDataDialogProps> = ({ onClear, onClo
   const [clearHistory, setClearHistory] = useState(true);
   const [clearCookies, setClearCookies] = useState(true);
   const [clearCache, setClearCache] = useState(true);
+  const [isClearing, setIsClearing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onClear({
-      timeRange,
-      clearHistory,
-      clearCookies,
-      clearCache,
-    });
-    onClose();
+    setIsClearing(true);
+    setError(null);
+    try {
+      await onClear({ timeRange, clearHistory, clearCookies, clearCache });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to clear browsing data.');
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   return (
@@ -37,6 +42,11 @@ export const ClearDataDialog: React.FC<ClearDataDialogProps> = ({ onClear, onClo
         </div>
 
         <form onSubmit={handleSubmit}>
+          {error && (
+            <p role="alert" style={{ color: 'var(--chrome-danger)', fontSize: 12, marginBottom: 12 }}>
+              {error}
+            </p>
+          )}
           {/* Time Range */}
           <div style={{ marginBottom: 18 }}>
             <label style={{ display: 'block', fontSize: 12, color: 'var(--chrome-text-secondary)', marginBottom: 6 }}>
@@ -115,6 +125,7 @@ export const ClearDataDialog: React.FC<ClearDataDialogProps> = ({ onClear, onClo
             <button
               type="button"
               onClick={onClose}
+              disabled={isClearing}
               style={{
                 padding: '8px 16px',
                 background: 'transparent',
@@ -129,9 +140,10 @@ export const ClearDataDialog: React.FC<ClearDataDialogProps> = ({ onClear, onClo
             <button
               type="submit"
               className="chrome-btn-primary"
+              disabled={isClearing}
               style={{ backgroundColor: 'var(--chrome-accent-blue)' }}
             >
-              Clear data
+              {isClearing ? 'Clearing...' : 'Clear data'}
             </button>
           </div>
         </form>

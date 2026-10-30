@@ -6,7 +6,7 @@ import { safeFetch, SsfError } from './server/safeFetch.js';
 import { rewriteHtml, rewriteCss, fromProxyPath, toProxyUrl } from './server/rewriteHtml.js';
 import { extractArticle } from './server/reader.js';
 import { performSearch } from './server/search.js';
-import { getCookieJar } from './server/cookieJar.js';
+import { clearCookieJar, getCookieJar } from './server/cookieJar.js';
 import { searchRateLimiter, readerRateLimiter, documentNavRateLimiter } from './server/rateLimit.js';
 
 const app = express();
@@ -53,6 +53,21 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', mode: 'lite', time: Date.now() });
 });
 
+app.post('/api/clear-data', (req: Request, res: Response) => {
+  if (req.body?.clearCookies) {
+    clearCookieJar((req as any).xyro_sid);
+  }
+  if (req.body?.privateSessionId) {
+    const privateSessionId = String(req.body.privateSessionId);
+    if (!/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
+      res.status(400).json({ error: 'Invalid private session' });
+      return;
+    }
+    clearCookieJar(`private:${privateSessionId}`);
+  }
+  res.status(204).end();
+});
+
 // Backward compatibility redirect: /api/page?url=... -> /api/p/<encOrigin>/<path>
 app.all('/api/page', (req: Request, res: Response) => {
   const targetUrl = (req.query.url as string) || (req.body && req.body.url);
@@ -68,7 +83,14 @@ app.all('/api/page', (req: Request, res: Response) => {
 app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
   const encOrigin = req.params.origin;
   const subpath = (req.params as any)[0] || '';
-  const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const proxyRequestUrl = new URL(req.url, 'http://xyro.local');
+  const privateSessionId = proxyRequestUrl.searchParams.get('__xyro_sid');
+  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
+    res.status(400).send('Invalid private session');
+    return;
+  }
+  proxyRequestUrl.searchParams.delete('__xyro_sid');
+  const queryStr = proxyRequestUrl.search;
 
   let origin = '';
   try {
@@ -106,7 +128,9 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
     return;
   }
 
-  const sid = (req as any).xyro_sid;
+  const sid = privateSessionId
+    ? `private:${privateSessionId}`
+    : (req as any).xyro_sid;
   const jar = getCookieJar(sid);
 
   // Safe headers passthrough
@@ -182,7 +206,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       }
 
       const rawHtml = Buffer.concat(chunks).toString('utf-8');
-      const { html, blockedCount } = rewriteHtml(rawHtml, fetched.finalUrl);
+      const { html, blockedCount } = rewriteHtml(rawHtml, fetched.finalUrl, undefined, privateSessionId || undefined);
 
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('X-Xyro-Blocked', String(blockedCount));
@@ -206,7 +230,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       }
 
       const rawCss = Buffer.concat(chunks).toString('utf-8');
-      const rewrittenCss = rewriteCss(rawCss, fetched.finalUrl);
+      const rewrittenCss = rewriteCss(rawCss, fetched.finalUrl, privateSessionId || undefined);
       res.setHeader('Content-Type', 'text/css; charset=utf-8');
       res.status(fetched.status).send(rewrittenCss);
       return;
@@ -292,13 +316,21 @@ app.get('/api/reader', async (req: Request, res: Response) => {
   }
 
   const targetUrl = req.query.url as string;
+  const privateSessionId = req.query.__xyro_sid as string | undefined;
   if (!targetUrl) {
     res.status(400).json({ error: 'Missing target URL' });
     return;
   }
+  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
+    res.status(400).json({ error: 'Invalid private session' });
+    return;
+  }
 
   try {
-    const article = await extractArticle(targetUrl);
+    const cookieJar = privateSessionId
+      ? getCookieJar(`private:${privateSessionId}`)
+      : getCookieJar((req as any).xyro_sid);
+    const article = await extractArticle(targetUrl, cookieJar);
     res.json(article);
   } catch (err: unknown) {
     res.status(502).json({
@@ -338,13 +370,20 @@ app.get('/api/search', async (req: Request, res: Response) => {
 // 4. Download Streaming Endpoint (/api/download?url=...)
 app.get('/api/download', async (req: Request, res: Response) => {
   const targetUrl = req.query.url as string;
+  const privateSessionId = req.query.__xyro_sid as string | undefined;
   if (!targetUrl) {
     res.status(400).send('Missing target URL');
     return;
   }
+  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
+    res.status(400).send('Invalid private session');
+    return;
+  }
 
   try {
-    const sid = (req as any).xyro_sid;
+    const sid = privateSessionId
+      ? `private:${privateSessionId}`
+      : (req as any).xyro_sid;
     const jar = getCookieJar(sid);
     const fetched = await safeFetch(targetUrl, { cookieJar: jar });
 

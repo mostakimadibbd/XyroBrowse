@@ -24,7 +24,20 @@ export class Storage {
   static getTabs(): Tab[] {
     try {
       const data = localStorage.getItem(KEYS.TABS);
-      if (data) return JSON.parse(data);
+      if (data) {
+        const parsed: unknown = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          const tabs = parsed.filter(
+            (tab): tab is Tab =>
+              !!tab &&
+              typeof tab === 'object' &&
+              typeof tab.id === 'string' &&
+              typeof tab.url === 'string' &&
+              !tab.isIncognito
+          );
+          if (tabs.length > 0) return tabs;
+        }
+      }
     } catch {}
     return [
       {
@@ -49,7 +62,9 @@ export class Storage {
   static saveTabs(tabs: Tab[]) {
     try {
       // Don't persist incognito tabs
-      const toSave = tabs.filter((t) => !t.isIncognito);
+      const toSave = tabs
+        .filter((t) => !t.isIncognito)
+        .map((t) => ({ ...t, contentUrl: t.url }));
       localStorage.setItem(KEYS.TABS, JSON.stringify(toSave));
     } catch {}
   }

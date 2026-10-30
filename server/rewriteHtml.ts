@@ -22,7 +22,12 @@ export function resolveUrl(relativeOrAbsolute: string, baseUrl: string): string 
  * Converts a target URL to path-based proxy URL:
  * /api/p/<encodeURIComponent(origin)>/<pathname><search><hash>
  */
-export function toProxyUrl(target: string, baseUrl?: string): string {
+export function toProxyUrl(
+  target: string,
+  baseUrl?: string,
+  sessionId?: string,
+  shieldsEnabled = true
+): string {
   try {
     const trimmed = target.trim();
     if (
@@ -40,6 +45,9 @@ export function toProxyUrl(target: string, baseUrl?: string): string {
     if (u.protocol !== 'http:' && u.protocol !== 'https:') {
       return target;
     }
+    if (sessionId) u.searchParams.set('__xyro_sid', sessionId);
+    if (shieldsEnabled) u.searchParams.delete('__xyro_shields');
+    else u.searchParams.set('__xyro_shields', 'off');
     const encOrigin = encodeURIComponent(u.origin);
     const sub = `${u.pathname}${u.search}${u.hash}`;
     return `/api/p/${encOrigin}${sub.startsWith('/') ? sub : '/' + sub}`;
@@ -66,7 +74,12 @@ export function fromProxyPath(proxyPath: string): string | null {
 /**
  * Rewrites srcset or data-srcset candidates with comma handling.
  */
-export function rewriteSrcset(srcsetValue: string, baseUrl: string): { rewritten: string; blockedCount: number } {
+export function rewriteSrcset(
+  srcsetValue: string,
+  baseUrl: string,
+  sessionId?: string,
+  shieldsEnabled = true
+): { rewritten: string; blockedCount: number } {
   let blockedCount = 0;
   const candidates: string[] = [];
   let current = '';
@@ -93,11 +106,11 @@ export function rewriteSrcset(srcsetValue: string, baseUrl: string): { rewritten
       const descriptor = parts.slice(1).join(' ');
       const resolved = resolveUrl(rawUrl, baseUrl);
 
-      if (isBlocked(resolved)) {
+      if (shieldsEnabled && isBlocked(resolved)) {
         blockedCount++;
         return '';
       }
-      const proxied = toProxyUrl(resolved);
+      const proxied = toProxyUrl(resolved, undefined, sessionId, shieldsEnabled);
       return descriptor ? `${proxied} ${descriptor}` : proxied;
     })
     .filter(Boolean);
@@ -111,14 +124,19 @@ export function rewriteSrcset(srcsetValue: string, baseUrl: string): { rewritten
 /**
  * Rewrites CSS text (@import and url(...)).
  */
-export function rewriteCss(cssText: string, baseUrl: string): string {
+export function rewriteCss(
+  cssText: string,
+  baseUrl: string,
+  sessionId?: string,
+  shieldsEnabled = true
+): string {
   // 1. Rewrite @import statements: @import "..." or @import '...' or @import url(...)
   let rewritten = cssText.replace(
     /@import\s+(?:url\s*\(\s*['"]?([^'")]+)['"]?\s*\)|['"]([^'"]+)['"])([^;]*);?/gi,
     (_match, u1, u2, media) => {
       const rawUrl = (u1 || u2 || '').trim();
       if (!rawUrl || rawUrl.startsWith('data:')) return _match;
-      const proxied = toProxyUrl(rawUrl, baseUrl);
+      const proxied = toProxyUrl(rawUrl, baseUrl, sessionId, shieldsEnabled);
       const mediaClause = media ? ` ${media.trim()}` : '';
       return `@import url("${proxied}")${mediaClause};`;
     }
@@ -132,7 +150,7 @@ export function rewriteCss(cssText: string, baseUrl: string): string {
       if (!cleanUrl || cleanUrl.startsWith('data:') || cleanUrl.startsWith('#')) {
         return _match;
       }
-      const proxied = toProxyUrl(cleanUrl, baseUrl);
+      const proxied = toProxyUrl(cleanUrl, baseUrl, sessionId, shieldsEnabled);
       return `url("${proxied}")`;
     }
   );
@@ -143,9 +161,17 @@ export function rewriteCss(cssText: string, baseUrl: string): string {
 /**
  * Comprehensive HTML rewriter for Phase 1.
  */
-export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): RewriteResult {
+export function rewriteHtml(
+  rawHtml: string,
+  pageUrl: string,
+  pageId?: string,
+  sessionId?: string,
+  shieldsEnabled = true
+): RewriteResult {
   const $ = cheerio.load(rawHtml);
   let blockedCount = 0;
+  const proxy = (url: string, baseUrl?: string) =>
+    toProxyUrl(url, baseUrl, sessionId, shieldsEnabled);
 
   // 1. Strip CSP meta, XFO meta, and anti-framing meta refresh
   $('meta[http-equiv="Content-Security-Policy" i]').remove();
@@ -161,7 +187,7 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
       if (parts.length === 2) {
         const sec = parts[0];
         const target = parts[1].replace(/^['"]|['"]$/g, '');
-        const proxied = toProxyUrl(target, pageUrl);
+        const proxied = proxy(target, pageUrl);
         $(el).attr('content', `${sec}; url=${proxied}`);
       }
     }
@@ -177,11 +203,11 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
     const src = $(el).attr('src');
     if (!src) return;
     const resolved = resolveUrl(src, pageUrl);
-    if (isBlocked(resolved)) {
+    if (shieldsEnabled && isBlocked(resolved)) {
       blockedCount++;
       $(el).remove();
     } else {
-      $(el).attr('src', toProxyUrl(resolved));
+      $(el).attr('src', proxy(resolved));
     }
   });
 
@@ -190,11 +216,11 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
     const href = $(el).attr('href');
     if (!href) return;
     const resolved = resolveUrl(href, pageUrl);
-    if (isBlocked(resolved)) {
+    if (shieldsEnabled && isBlocked(resolved)) {
       blockedCount++;
       $(el).remove();
     } else {
-      $(el).attr('href', toProxyUrl(resolved));
+      $(el).attr('href', proxy(resolved));
     }
   });
 
@@ -203,35 +229,35 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
     const src = $(el).attr('src');
     if (src) {
       const resolved = resolveUrl(src, pageUrl);
-      if (isBlocked(resolved)) {
+      if (shieldsEnabled && isBlocked(resolved)) {
         blockedCount++;
         $(el).attr('src', 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>');
       } else {
-        $(el).attr('src', toProxyUrl(resolved));
+        $(el).attr('src', proxy(resolved));
       }
     }
 
     const dataSrc = $(el).attr('data-src');
     if (dataSrc) {
       const resolved = resolveUrl(dataSrc, pageUrl);
-      if (isBlocked(resolved)) {
+      if (shieldsEnabled && isBlocked(resolved)) {
         blockedCount++;
         $(el).removeAttr('data-src');
       } else {
-        $(el).attr('data-src', toProxyUrl(resolved));
+        $(el).attr('data-src', proxy(resolved));
       }
     }
 
     const srcset = $(el).attr('srcset');
     if (srcset) {
-      const { rewritten, blockedCount: b } = rewriteSrcset(srcset, pageUrl);
+      const { rewritten, blockedCount: b } = rewriteSrcset(srcset, pageUrl, sessionId, shieldsEnabled);
       blockedCount += b;
       $(el).attr('srcset', rewritten);
     }
 
     const dataSrcset = $(el).attr('data-srcset');
     if (dataSrcset) {
-      const { rewritten, blockedCount: b } = rewriteSrcset(dataSrcset, pageUrl);
+      const { rewritten, blockedCount: b } = rewriteSrcset(dataSrcset, pageUrl, sessionId, shieldsEnabled);
       blockedCount += b;
       $(el).attr('data-srcset', rewritten);
     }
@@ -241,8 +267,9 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href');
     if (!href || href.startsWith('javascript:') || href.startsWith('#')) return;
-    const resolved = stripTrackingParams(resolveUrl(href, pageUrl));
-    $(el).attr('href', toProxyUrl(resolved));
+    const resolvedUrl = resolveUrl(href, pageUrl);
+    const resolved = shieldsEnabled ? stripTrackingParams(resolvedUrl) : resolvedUrl;
+    $(el).attr('href', proxy(resolved));
     $(el).removeAttr('target');
   });
 
@@ -251,11 +278,11 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
     const src = $(el).attr('src');
     if (!src) return;
     const resolved = resolveUrl(src, pageUrl);
-    if (isBlocked(resolved)) {
+    if (shieldsEnabled && isBlocked(resolved)) {
       blockedCount++;
       $(el).remove();
     } else {
-      $(el).attr('src', toProxyUrl(resolved));
+      $(el).attr('src', proxy(resolved));
     }
   });
 
@@ -263,11 +290,11 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
     const data = $(el).attr('data');
     if (!data) return;
     const resolved = resolveUrl(data, pageUrl);
-    if (isBlocked(resolved)) {
+    if (shieldsEnabled && isBlocked(resolved)) {
       blockedCount++;
       $(el).remove();
     } else {
-      $(el).attr('data', toProxyUrl(resolved));
+      $(el).attr('data', proxy(resolved));
     }
   });
 
@@ -275,23 +302,23 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
   $('video, audio').each((_, el) => {
     const src = $(el).attr('src');
     if (src) {
-      $(el).attr('src', toProxyUrl(src, pageUrl));
+      $(el).attr('src', proxy(src, pageUrl));
     }
     const poster = $(el).attr('poster');
     if (poster) {
-      $(el).attr('poster', toProxyUrl(poster, pageUrl));
+      $(el).attr('poster', proxy(poster, pageUrl));
     }
   });
 
   $('source[src]').each((_, el) => {
     const src = $(el).attr('src');
-    if (src) $(el).attr('src', toProxyUrl(src, pageUrl));
+    if (src) $(el).attr('src', proxy(src, pageUrl));
   });
 
   $('source[srcset]').each((_, el) => {
     const srcset = $(el).attr('srcset');
     if (srcset) {
-      const { rewritten, blockedCount: b } = rewriteSrcset(srcset, pageUrl);
+      const { rewritten, blockedCount: b } = rewriteSrcset(srcset, pageUrl, sessionId, shieldsEnabled);
       blockedCount += b;
       $(el).attr('srcset', rewritten);
     }
@@ -299,23 +326,23 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
 
   $('track[src]').each((_, el) => {
     const src = $(el).attr('src');
-    if (src) $(el).attr('src', toProxyUrl(src, pageUrl));
+    if (src) $(el).attr('src', proxy(src, pageUrl));
   });
 
   $('input[type="image" i][src]').each((_, el) => {
     const src = $(el).attr('src');
-    if (src) $(el).attr('src', toProxyUrl(src, pageUrl));
+    if (src) $(el).attr('src', proxy(src, pageUrl));
   });
 
   // 9. SVG <use href|xlink:href> and <image href|xlink:href>
   $('use, image').each((_, el) => {
     const href = $(el).attr('href');
     if (href && !href.startsWith('#')) {
-      $(el).attr('href', toProxyUrl(href, pageUrl));
+      $(el).attr('href', proxy(href, pageUrl));
     }
     const xlinkHref = $(el).attr('xlink:href');
     if (xlinkHref && !xlinkHref.startsWith('#')) {
-      $(el).attr('xlink:href', toProxyUrl(xlinkHref, pageUrl));
+      $(el).attr('xlink:href', proxy(xlinkHref, pageUrl));
     }
   });
 
@@ -323,14 +350,14 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
   $('form[action]').each((_, el) => {
     const action = $(el).attr('action');
     if (action) {
-      $(el).attr('action', toProxyUrl(action, pageUrl));
+      $(el).attr('action', proxy(action, pageUrl));
     }
   });
 
   $('[formaction]').each((_, el) => {
     const fa = $(el).attr('formaction');
     if (fa) {
-      $(el).attr('formaction', toProxyUrl(fa, pageUrl));
+      $(el).attr('formaction', proxy(fa, pageUrl));
     }
   });
 
@@ -338,7 +365,7 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
   $('[style]').each((_, el) => {
     const styleAttr = $(el).attr('style');
     if (styleAttr && (styleAttr.includes('url(') || styleAttr.includes('@import'))) {
-      $(el).attr('style', rewriteCss(styleAttr, pageUrl));
+      $(el).attr('style', rewriteCss(styleAttr, pageUrl, sessionId, shieldsEnabled));
     }
   });
 
@@ -346,16 +373,16 @@ export function rewriteHtml(rawHtml: string, pageUrl: string, pageId?: string): 
   $('style').each((_, el) => {
     const cssText = $(el).text();
     if (cssText) {
-      $(el).text(rewriteCss(cssText, pageUrl));
+      $(el).text(rewriteCss(cssText, pageUrl, sessionId, shieldsEnabled));
     }
   });
 
   // 13. Inject <base href="..."> pointing at the new-form URL of the document
-  const docBaseUrl = toProxyUrl(pageUrl);
+  const docBaseUrl = proxy(pageUrl);
   const baseTag = `<base href="${docBaseUrl}">`;
 
   // 14. Inject client shim script into <head> as first element
-  const shim = `<script>${getInjectedScript(pageUrl, blockedCount, pageId)}</script>`;
+  const shim = `<script>${getInjectedScript(pageUrl, blockedCount, pageId, sessionId, shieldsEnabled)}</script>`;
 
   if ($('head').length > 0) {
     $('head').prepend(baseTag);

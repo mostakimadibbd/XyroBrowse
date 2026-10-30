@@ -17,6 +17,8 @@ declare global {
       stopFind: (tabId: string) => void;
       print: (tabId: string) => void;
       openDevTools: (tabId: string) => void;
+      clearBrowsingData: (options: { clearCookies: boolean; clearCache: boolean }) => Promise<void>;
+      clearIncognitoSession: (tabId: string) => Promise<void>;
       on: (channel: string, callback: (...args: any[]) => void) => () => void;
     };
   }

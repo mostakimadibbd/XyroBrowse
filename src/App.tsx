@@ -26,7 +26,13 @@ import { TabSwitcher } from './components/TabSwitcher';
 export default function App() {
   // 1. Persistent State
   const [tabs, setTabs] = useState<Tab[]>(() => Storage.getTabs());
-  const [activeTabId, setActiveTabId] = useState<string>(() => Storage.getActiveTabId());
+  const [activeTabId, setActiveTabId] = useState<string>(() => {
+    const restoredTabs = Storage.getTabs();
+    const storedActiveId = Storage.getActiveTabId();
+    return restoredTabs.some((tab) => tab.id === storedActiveId)
+      ? storedActiveId
+      : restoredTabs[0]?.id || 'tab-1';
+  });
   const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(() => Storage.getBookmarks());
   const [history, setHistory] = useState<HistoryItem[]>(() => Storage.getHistory());
   const [downloads, setDownloads] = useState<DownloadItem[]>(() => Storage.getDownloads());
@@ -53,6 +59,12 @@ export default function App() {
     [tabs, activeTabId]
   );
 
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === activeTabId) && tabs.length > 0) {
+      setActiveTabId(tabs[0].id);
+    }
+  }, [tabs, activeTabId]);
+
   const currentEngine = useMemo(
     () => SEARCH_ENGINES.find((e) => e.id === settings.defaultSearchEngine) || SEARCH_ENGINES[0],
     [settings.defaultSearchEngine]
@@ -67,9 +79,18 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [isMobile, setIsMobile] = useState<boolean>(() => window.innerWidth <= 640);
 
-  // Sync theme attribute to HTML root
+  // Resolve the system theme to the concrete palette supported by the stylesheet.
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', settings.theme);
+    const colorScheme = window.matchMedia('(prefers-color-scheme: light)');
+    const applyTheme = () => {
+      const theme = settings.theme === 'system'
+        ? (colorScheme.matches ? 'light' : 'dark')
+        : settings.theme;
+      document.documentElement.setAttribute('data-theme', theme);
+    };
+    applyTheme();
+    colorScheme.addEventListener('change', applyTheme);
+    return () => colorScheme.removeEventListener('change', applyTheme);
   }, [settings.theme]);
 
   // Window resize listener for mobile ergonomics
@@ -107,16 +128,18 @@ export default function App() {
   // 4. Tab Actions
   const createNewTab = useCallback((url = 'chrome://newtab', isIncognito = false) => {
     const newId = 'tab-' + Math.random().toString(36).slice(2, 9);
+    const proxySessionId = isIncognito ? crypto.randomUUID() : undefined;
     const newTab: Tab = {
       id: newId,
       url,
+      proxySessionId,
       title: url === 'chrome://newtab' ? 'New Tab' : 'Loading...',
       isIncognito,
       pinned: false,
       history: [url],
       historyIndex: 0,
       zoom: 100,
-      isLoading: false,
+      isLoading: url.startsWith('http'),
       isReaderMode: false,
       autoDarkMode: false,
       viewSource: false,
@@ -129,6 +152,21 @@ export default function App() {
 
   const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const closedTab = tabs.find((tab) => tab.id === id);
+    if (closedTab?.proxySessionId) {
+      const cleanup = window.xyro?.platform === 'electron'
+        ? window.xyro.clearIncognitoSession(id)
+        : fetch('/api/clear-data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ privateSessionId: closedTab.proxySessionId }),
+          }).then((response) => {
+            if (!response.ok) {
+              throw new Error(`Unable to clear private session data (HTTP ${response.status}).`);
+            }
+          });
+      void cleanup.catch((error) => console.error('Failed to clear private session data:', error));
+    }
     setTabs((prev) => {
       const filtered = prev.filter((t) => t.id !== id);
       if (filtered.length === 0) {
@@ -158,7 +196,7 @@ export default function App() {
       }
       return filtered;
     });
-  }, [activeTabId]);
+  }, [activeTabId, tabs]);
 
   const togglePin = useCallback((id: string) => {
     setTabs((prev) =>
@@ -167,7 +205,12 @@ export default function App() {
   }, []);
 
   // 5. Navigation Action
-  const navigate = useCallback((rawTarget: string) => {
+  const navigateInTab = useCallback((
+    tabId: string,
+    rawTarget: string,
+    replace = false,
+    preserveDocument = false
+  ) => {
     const resolved = resolveOmniboxInput(rawTarget, currentEngine);
     const targetUrl = resolved.url;
 
@@ -189,15 +232,19 @@ export default function App() {
 
     setTabs((prev) =>
       prev.map((t) => {
-        if (t.id === activeTabId) {
+        if (t.id === tabId) {
+          if (preserveDocument && t.url === targetUrl) return t;
           const currentHist = t.history.slice(0, t.historyIndex + 1);
-          const newHist = [...currentHist, targetUrl];
+          const newHist = replace
+            ? [...currentHist.slice(0, -1), targetUrl]
+            : [...currentHist, targetUrl];
           return {
             ...t,
             url: targetUrl,
+            contentUrl: preserveDocument ? t.contentUrl : targetUrl,
             title: newTitle,
             history: newHist,
-            historyIndex: newHist.length - 1,
+            historyIndex: Math.max(0, newHist.length - 1),
             isLoading: targetUrl.startsWith('http'),
             isReaderMode: false,
             readerContent: undefined,
@@ -209,7 +256,8 @@ export default function App() {
     );
 
     // Save to history if not incognito and not an internal page
-    if (!activeTab.isIncognito && targetUrl.startsWith('http')) {
+    const targetTab = tabs.find((tab) => tab.id === tabId);
+    if (!replace && targetTab && !targetTab.isIncognito && targetUrl.startsWith('http')) {
       const histItem: HistoryItem = {
         id: 'hist-' + Math.random().toString(36).slice(2, 9),
         url: targetUrl,
@@ -218,7 +266,11 @@ export default function App() {
       };
       setHistory((prev) => [histItem, ...prev]);
     }
-  }, [activeTabId, activeTab.isIncognito, currentEngine]);
+  }, [currentEngine, tabs]);
+
+  const navigate = useCallback((rawTarget: string) => {
+    navigateInTab(activeTabId, rawTarget);
+  }, [activeTabId, navigateInTab]);
 
   // Back / Forward / Reload
   const goBack = useCallback(() => {
@@ -228,7 +280,14 @@ export default function App() {
       setTabs((prev) =>
         prev.map((t) =>
           t.id === activeTabId
-            ? { ...t, url: targetUrl, historyIndex: newIdx, isReaderMode: false }
+            ? {
+                ...t,
+                url: targetUrl,
+                contentUrl: targetUrl,
+                historyIndex: newIdx,
+                isReaderMode: false,
+                isLoading: targetUrl.startsWith('http'),
+              }
             : t
         )
       );
@@ -242,7 +301,14 @@ export default function App() {
       setTabs((prev) =>
         prev.map((t) =>
           t.id === activeTabId
-            ? { ...t, url: targetUrl, historyIndex: newIdx, isReaderMode: false }
+            ? {
+                ...t,
+                url: targetUrl,
+                contentUrl: targetUrl,
+                historyIndex: newIdx,
+                isReaderMode: false,
+                isLoading: targetUrl.startsWith('http'),
+              }
             : t
         )
       );
@@ -250,19 +316,33 @@ export default function App() {
   }, [activeTab, activeTabId]);
 
   const reload = useCallback(() => {
+    if (!activeTab.url.startsWith('http')) return;
     setTabs((prev) =>
       prev.map((t) =>
-        t.id === activeTabId ? { ...t, isLoading: true } : t
+        t.id === activeTabId
+          ? {
+              ...t,
+              contentUrl: t.url,
+              isLoading: true,
+              reloadKey: (t.reloadKey || 0) + 1,
+            }
+          : t
       )
     );
-    // Simulating instant frame refresh
-    setTimeout(() => {
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === activeTabId ? { ...t, isLoading: false } : t
-        )
-      );
-    }, 200);
+  }, [activeTab.url, activeTabId]);
+
+  const stopLoading = useCallback(() => {
+    const frame = document.querySelector<HTMLIFrameElement>(
+      `iframe[data-tab-id="${activeTabId}"]`
+    );
+    frame?.contentWindow?.stop();
+    const webview = document.querySelector<HTMLElement & { stop?: () => void }>(
+      `webview[data-tab-id="${activeTabId}"]`
+    );
+    webview?.stop?.();
+    setTabs((prev) =>
+      prev.map((t) => (t.id === activeTabId ? { ...t, isLoading: false } : t))
+    );
   }, [activeTabId]);
 
   // 6. Reader Mode
@@ -277,7 +357,11 @@ export default function App() {
     if (!activeTab.url.startsWith('http')) return;
 
     try {
-      const res = await fetch(`/api/reader?url=${encodeURIComponent(activeTab.url)}`);
+      const readerParams = new URLSearchParams({ url: activeTab.url });
+      if (activeTab.proxySessionId) {
+        readerParams.set('__xyro_sid', activeTab.proxySessionId);
+      }
+      const res = await fetch(`/api/reader?${readerParams}`);
       if (res.ok) {
         const article = await res.json();
         setTabs((prev) =>
@@ -342,17 +426,78 @@ export default function App() {
 
   // 10. Downloads
   const handleDownload = useCallback(async (url: string) => {
-    const item = await downloadFile(url);
-    setDownloads((prev) => [item, ...prev]);
-  }, []);
+    const item = await downloadFile(url, activeTab.proxySessionId);
+    if (!activeTab.isIncognito) setDownloads((prev) => [item, ...prev]);
+  }, [activeTab.isIncognito, activeTab.proxySessionId]);
+
+  const printPage = useCallback(() => {
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      `iframe[data-tab-id="${activeTabId}"]`
+    );
+    if (iframe) {
+      iframe.contentWindow?.postMessage({ type: 'xyro-print' }, '*');
+      return;
+    }
+
+    const webview = document.querySelector<HTMLElement & { print?: () => void }>(
+      `webview[data-tab-id="${activeTabId}"]`
+    );
+    if (webview?.print) {
+      webview.print();
+      return;
+    }
+    window.print();
+  }, [activeTabId]);
+
+  const findInPage = useCallback((text: string, backwards = false) => {
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      `iframe[data-tab-id="${activeTabId}"]`
+    );
+    iframe?.contentWindow?.postMessage(
+      { type: text ? 'xyro-find' : 'xyro-stop-find', text, backwards },
+      '*'
+    );
+
+    const webview = document.querySelector<HTMLElement & {
+      findInPage?: (text: string, options?: { forward?: boolean }) => void;
+      stopFindInPage?: (action: 'clearSelection') => void;
+    }>(`webview[data-tab-id="${activeTabId}"]`);
+    if (text) webview?.findInPage?.(text, { forward: !backwards });
+    else webview?.stopFindInPage?.('clearSelection');
+  }, [activeTabId]);
 
   // 11. Clear Data
-  const handleClearData = useCallback((options: {
+  const handleClearData = useCallback(async (options: {
     timeRange: 'hour' | '24h' | '7d' | 'all';
     clearHistory: boolean;
     clearCookies: boolean;
     clearCache: boolean;
   }) => {
+    if (options.clearCookies || options.clearCache) {
+      if (window.xyro?.platform === 'electron') {
+        await window.xyro.clearBrowsingData({
+          clearCookies: options.clearCookies,
+          clearCache: options.clearCache,
+        });
+      } else {
+        const response = await fetch('/api/clear-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clearCookies: options.clearCookies,
+            clearCache: options.clearCache,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error(`Unable to clear site data (HTTP ${response.status}).`);
+        }
+        if (options.clearCache && 'caches' in window) {
+          const cacheNames = await window.caches.keys();
+          await Promise.all(cacheNames.map((cacheName) => window.caches.delete(cacheName)));
+        }
+      }
+    }
+
     if (options.clearHistory) {
       const now = Date.now();
       const cutoff =
@@ -369,7 +514,29 @@ export default function App() {
   }, []);
 
   // 12. Global Keyboard Shortcuts
-  const handleKeyShortcut = useCallback((key: string, ctrl: boolean, shift: boolean) => {
+  const handleKeyShortcut = useCallback((
+    key: string,
+    ctrl: boolean,
+    shift: boolean,
+    alt = false
+  ) => {
+    if (key === 'F5') {
+      reload();
+      return;
+    }
+    if (key === 'Escape') {
+      if (activeTab.isLoading) stopLoading();
+      else {
+        findInPage('');
+        setShowFindBar(false);
+      }
+      return;
+    }
+    if (alt) {
+      if (key === 'ArrowLeft') goBack();
+      if (key === 'ArrowRight') goForward();
+      return;
+    }
     if (ctrl) {
       switch (key.toLowerCase()) {
         case 't':
@@ -381,6 +548,12 @@ export default function App() {
         case 'n':
           if (shift) createNewTab('chrome://newtab', true);
           break;
+        case 'l': {
+          const omnibox = document.querySelector<HTMLInputElement>('.chrome-omnibox-input');
+          omnibox?.focus();
+          omnibox?.select();
+          break;
+        }
         case 'r':
           reload();
           break;
@@ -388,7 +561,7 @@ export default function App() {
           setShowFindBar((prev) => !prev);
           break;
         case 'p':
-          window.print();
+          printPage();
           break;
         case 'd':
           toggleBookmark();
@@ -414,17 +587,83 @@ export default function App() {
           break;
       }
     }
-  }, [createNewTab, closeTab, activeTabId, reload, toggleBookmark, navigate, handleZoom, resetZoom]);
+  }, [
+    createNewTab,
+    closeTab,
+    activeTabId,
+    reload,
+    toggleBookmark,
+    navigate,
+    handleZoom,
+    resetZoom,
+    goBack,
+    goForward,
+    activeTab.isLoading,
+    stopLoading,
+    findInPage,
+    printPage,
+  ]);
+
+  useEffect(() => {
+    const unsubscribe = window.xyro?.on(
+      'engine-event',
+      (
+        eventName: string,
+        payload?: {
+          url?: string;
+          key?: string;
+          ctrlKey?: boolean;
+          metaKey?: boolean;
+          shiftKey?: boolean;
+          altKey?: boolean;
+        }
+      ) => {
+        if (eventName === 'newTab') createNewTab(payload?.url || 'chrome://newtab');
+        else if (eventName === 'newIncognito') createNewTab('chrome://newtab', true);
+        else if (eventName === 'openAbout') navigate('chrome://about');
+        else if (eventName === 'reloadHard') reload();
+        else if (eventName === 'shortcut' && payload?.key) {
+          handleKeyShortcut(
+            payload.key,
+            !!(payload.ctrlKey || payload.metaKey),
+            !!payload.shiftKey,
+            !!payload.altKey
+          );
+        }
+      }
+    );
+    return () => unsubscribe?.();
+  }, [createNewTab, handleKeyShortcut, navigate, reload]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const ctrl = isMac ? e.metaKey : e.ctrlKey;
-      if (ctrl || e.key === 'F11') {
-        if (e.key === 'F11') {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreen();
+      } else if (e.key === 'F5' && !ctrl) {
+        e.preventDefault();
+        reload();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        if (activeTab.isLoading) stopLoading();
+        else {
+          findInPage('');
+          setShowFindBar(false);
+        }
+      } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        handleKeyShortcut(e.key, false, e.shiftKey, true);
+      } else if (ctrl && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        const omnibox = document.querySelector<HTMLInputElement>('.chrome-omnibox-input');
+        omnibox?.focus();
+        omnibox?.select();
+      } else if (ctrl) {
+        const handledKeys = ['t', 'w', 'r', 'f', 'p', 'd', 'h', 'j', 'o', '=', '+', '-', '0'];
+        if (handledKeys.includes(e.key.toLowerCase())) {
           e.preventDefault();
-          toggleFullscreen();
-        } else {
           handleKeyShortcut(e.key, ctrl, e.shiftKey);
         }
       }
@@ -432,7 +671,14 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyShortcut, toggleFullscreen]);
+  }, [
+    activeTab.isLoading,
+    findInPage,
+    handleKeyShortcut,
+    reload,
+    stopLoading,
+    toggleFullscreen,
+  ]);
 
   return (
     <div className="chrome-browser-shell">
@@ -465,12 +711,8 @@ export default function App() {
           onBack={goBack}
           onForward={goForward}
           onReload={reload}
-          onStop={() =>
-            setTabs((prev) =>
-              prev.map((t) => (t.id === activeTabId ? { ...t, isLoading: false } : t))
-            )
-          }
-          onHome={() => navigate('chrome://newtab')}
+          onStop={stopLoading}
+          onHome={() => navigate(settings.homePage)}
           onNavigate={navigate}
           onToggleBookmark={toggleBookmark}
           onToggleReaderMode={toggleReaderMode}
@@ -502,14 +744,26 @@ export default function App() {
           downloads={downloads}
           settings={settings}
           onNavigate={navigate}
-          onUpdateTitle={(title) =>
+          onNavigateInTab={navigateInTab}
+          onOpenNewTab={(url) => createNewTab(url)}
+          onUpdateTabTitle={(tabId, title) =>
             setTabs((prev) =>
-              prev.map((t) => (t.id === activeTabId ? { ...t, title } : t))
+              prev.map((t) => (t.id === tabId ? { ...t, title } : t))
             )
           }
-          onUpdateBlockedCount={(blockedCount) =>
+          onUpdateTabFavicon={(tabId, favicon) =>
             setTabs((prev) =>
-              prev.map((t) => (t.id === activeTabId ? { ...t, blockedCount } : t))
+              prev.map((t) => (t.id === tabId ? { ...t, favicon } : t))
+            )
+          }
+          onUpdateTabBlockedCount={(tabId, blockedCount) =>
+            setTabs((prev) =>
+              prev.map((t) => (t.id === tabId ? { ...t, blockedCount } : t))
+            )
+          }
+          onUpdateTabLoading={(tabId, isLoading) =>
+            setTabs((prev) =>
+              prev.map((t) => (t.id === tabId ? { ...t, isLoading } : t))
             )
           }
           onContextMenu={setContextMenu}
@@ -540,12 +794,11 @@ export default function App() {
         {/* Floating Find in Page Bar */}
         {showFindBar && (
           <FindBar
-            onFind={(text) => {
-              // Post find message to iframe
-              const iframe = document.querySelector('iframe');
-              iframe?.contentWindow?.postMessage({ type: 'xyro-find', text }, '*');
+            onFind={findInPage}
+            onClose={() => {
+              findInPage('');
+              setShowFindBar(false);
             }}
-            onClose={() => setShowFindBar(false)}
           />
         )}
       </div>
@@ -558,7 +811,7 @@ export default function App() {
           tabCount={tabs.length}
           onBack={goBack}
           onForward={goForward}
-          onHome={() => navigate('chrome://newtab')}
+          onHome={() => navigate(settings.homePage)}
           onNewTab={() => createNewTab()}
           onOpenTabSwitcher={() => setShowTabSwitcher(true)}
           onToggleMenu={() => setShowMenu(!showMenu)}
@@ -576,7 +829,7 @@ export default function App() {
           onOpenHistory={() => navigate('chrome://history')}
           onOpenDownloads={() => navigate('chrome://downloads')}
           onFindInPage={() => setShowFindBar(true)}
-          onPrint={() => window.print()}
+          onPrint={printPage}
           onZoomIn={() => handleZoom(10)}
           onZoomOut={() => handleZoom(-10)}
           onResetZoom={resetZoom}

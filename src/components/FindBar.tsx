@@ -17,7 +17,7 @@ export const FindBar: React.FC<FindBarProps> = ({ onFind, onClose }) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setText(val);
-    if (val) onFind(val, false);
+    onFind(val, false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -212,7 +212,19 @@ test('Proxy Fixture Server - verifies relative CSS, modules, login jar, range, a
     assert.match(proxied, /^\/api\/p\//);
     const roundtrip = fromProxyPath(proxied);
     assert.strictEqual(roundtrip, `${baseUrl}/foo/bar?q=1`);
-  } finally {
+
+    const privateSessionId = 'c0a80123-4567-489a-bcde-123456789abc';
+    const privateProxied = toProxyUrl(`${baseUrl}/foo/bar?q=1`, undefined, privateSessionId);
+    assert.match(privateProxied, /[?&]__xyro_sid=c0a80123-4567-489a-bcde-123456789abc/);
+    const privateHtml = rewriteHtml(
+      '<html><head></head><body><a href="/private">private</a></body></html>',
+      `${baseUrl}/`,
+      undefined,
+      privateSessionId
+    ).html;
+    assert.match(privateHtml, /__xyro_sid=c0a80123-4567-489a-bcde-123456789abc/);
+    assert.match(privateHtml, /const SESSION_ID = "c0a80123-4567-489a-bcde-123456789abc"/);
+    } finally {
     server.close();
   }
 });

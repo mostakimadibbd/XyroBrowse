@@ -44,6 +44,10 @@ contextBridge.exposeInMainWorld('xyro', {
   getSuggestions: (query: string, engine = 'google') => {
     return ipcRenderer.invoke('xyro-search-suggest', { query, engine });
   },
+  clearBrowsingData: (options: { clearCookies: boolean; clearCache: boolean }) =>
+    ipcRenderer.invoke('xyro-clear-browsing-data', options),
+  clearIncognitoSession: (tabId: string) =>
+    ipcRenderer.invoke('xyro-clear-incognito-session', { partition: `incognito-${tabId}` }),
   on: (channel: string, callback: (...args: any[]) => void) => {
     const validChannels = ['engine-event', 'download-started', 'download-progress', 'download-completed'];
     if (validChannels.includes(channel)) {

@@ -5,6 +5,7 @@ import { DownloadItem } from '../types';
  */
 export async function downloadFile(
   url: string,
+  sessionId?: string,
   onProgress?: (receivedBytes: number, totalBytes: number) => void
 ): Promise<DownloadItem> {
   const downloadId = 'dl-' + Math.random().toString(36).slice(2, 9);
@@ -26,7 +27,10 @@ export async function downloadFile(
   };
 
   try {
-    const res = await fetch(`/api/download?url=${encodeURIComponent(url)}`);
+    const privateSession = sessionId
+      ? `&__xyro_sid=${encodeURIComponent(sessionId)}`
+      : '';
+    const res = await fetch(`/api/download?url=${encodeURIComponent(url)}${privateSession}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const contentLength = res.headers.get('content-length');

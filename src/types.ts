@@ -11,12 +11,15 @@ export interface ReaderArticle {
 export interface Tab {
   id: string;
   url: string;
+  contentUrl?: string;
+  proxySessionId?: string;
   title: string;
   favicon?: string;
   isIncognito: boolean;
   pinned: boolean;
   history: string[];
   historyIndex: number;
+  reloadKey?: number;
   zoom: number; // 25 to 500 (%)
   isLoading: boolean;
   isReaderMode: boolean;

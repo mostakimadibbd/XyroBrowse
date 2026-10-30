@@ -3,12 +3,20 @@
  * API proxying, DOM attribute interception, and parent-frame bidirectional messaging.
  */
 
-export function getInjectedScript(targetUrl: string, initialBlockedCount = 0, pageId = ''): string {
+export function getInjectedScript(
+  targetUrl: string,
+  initialBlockedCount = 0,
+  pageId = '',
+  sessionId = '',
+  shieldsEnabled = true
+): string {
   return `
 (function() {
   const TARGET_URL = ${JSON.stringify(targetUrl)};
   const INITIAL_BLOCKED = ${initialBlockedCount};
   const PAGE_ID = ${JSON.stringify(pageId)};
+  const SESSION_ID = ${JSON.stringify(sessionId)};
+  const SHIELDS_ENABLED = ${JSON.stringify(shieldsEnabled)};
 
   let targetOrigin = '';
   try {
@@ -20,6 +28,20 @@ export function getInjectedScript(targetUrl: string, initialBlockedCount = 0, pa
       if (!url) return '';
       if (url.startsWith('data:') || url.startsWith('javascript:') || url.startsWith('blob:') || url.startsWith('#')) {
         return url;
+      }
+      const proxyUrl = new URL(url, window.location.href);
+      if (proxyUrl.pathname.startsWith('/api/p/')) {
+        const match = proxyUrl.pathname.match(/^\\/api\\/p\\/([^/]+)(.*)$/);
+        if (match) {
+          const destination = new URL(match[2] || '/', decodeURIComponent(match[1]));
+          proxyUrl.searchParams.forEach(function(value, key) {
+            if (key !== '__xyro_sid' && key !== '__xyro_shields') destination.searchParams.append(key, value);
+          });
+          destination.hash = proxyUrl.hash;
+          destination.searchParams.delete('__xyro_sid');
+          destination.searchParams.delete('__xyro_shields');
+          return destination.toString();
+        }
       }
       return new URL(url, TARGET_URL).toString();
     } catch(e) {
@@ -36,6 +58,9 @@ export function getInjectedScript(targetUrl: string, initialBlockedCount = 0, pa
       const resolved = resolveToTarget(url);
       const u = new URL(resolved);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return url;
+      if (SESSION_ID) u.searchParams.set('__xyro_sid', SESSION_ID);
+      if (SHIELDS_ENABLED) u.searchParams.delete('__xyro_shields');
+      else u.searchParams.set('__xyro_shields', 'off');
       const encOrigin = encodeURIComponent(u.origin);
       const sub = u.pathname + u.search + u.hash;
       return '/api/p/' + encOrigin + (sub.startsWith('/') ? sub : '/' + sub);
@@ -283,6 +308,8 @@ export function getInjectedScript(targetUrl: string, initialBlockedCount = 0, pa
       if (window.find) {
         window.find(data.text, data.caseSensitive || false, data.backwards || false, true, false, true, false);
       }
+    } else if (data.type === 'xyro-stop-find') {
+      window.getSelection()?.removeAllRanges();
     } else if (data.type === 'xyro-zoom') {
       document.body.style.zoom = String(data.scale);
     } else if (data.type === 'xyro-print') {

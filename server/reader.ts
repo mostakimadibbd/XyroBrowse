@@ -1,6 +1,7 @@
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import { safeFetch } from './safeFetch.js';
+import type { CookieJar } from 'tough-cookie';
 
 export interface ReaderArticle {
   title: string;
@@ -15,10 +16,10 @@ export interface ReaderArticle {
 /**
  * Parses article content from a target URL using Mozilla Readability with fallback to r.jina.ai.
  */
-export async function extractArticle(targetUrl: string): Promise<ReaderArticle> {
+export async function extractArticle(targetUrl: string, cookieJar?: CookieJar): Promise<ReaderArticle> {
   try {
     // 1. Fetch live page HTML via safeFetch
-    const fetched = await safeFetch(targetUrl);
+    const fetched = await safeFetch(targetUrl, { cookieJar });
     let html = '';
     if (fetched.buffer) {
       html = fetched.buffer.toString('utf-8');

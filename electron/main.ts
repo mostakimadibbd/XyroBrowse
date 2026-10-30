@@ -159,6 +159,32 @@ ipcMain.handle('xyro-search-suggest', async (_evt, { query, engine }) => {
   return searchSuggest.getSuggestions(query, engine);
 });
 
+ipcMain.handle(
+  'xyro-clear-browsing-data',
+  async (_evt, options: { clearCookies: boolean; clearCache: boolean }) => {
+    const sessions = [session.defaultSession, session.fromPartition('persist:xyro')];
+    await Promise.all(
+      sessions.map(async (browserSession) => {
+        if (options.clearCookies) {
+          await browserSession.clearStorageData({ storages: ['cookies'] });
+        }
+        if (options.clearCache) {
+          await browserSession.clearCache();
+        }
+      })
+    );
+  }
+);
+
+ipcMain.handle('xyro-clear-incognito-session', async (_evt, { partition }: { partition: string }) => {
+  if (!/^incognito-tab-[a-z0-9]+$/i.test(partition)) {
+    throw new Error('Invalid incognito partition.');
+  }
+  const incognitoSession = session.fromPartition(partition);
+  await incognitoSession.clearStorageData();
+  await incognitoSession.clearCache();
+});
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

@@ -103,7 +103,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div>
               <div style={{ fontWeight: 500, fontSize: 13 }}>Theme</div>
               <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
-                Switch between Chrome Dark Mode and Light Mode
+                Choose a theme or follow your device appearance
               </div>
             </div>
             <select
@@ -122,7 +122,42 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             >
               <option value="dark">Dark</option>
               <option value="light">Light</option>
+              <option value="system">System default</option>
             </select>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingTop: 14,
+              paddingBottom: 14,
+              borderBottom: '1px solid var(--chrome-border-subtle)',
+              gap: 20,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 13 }}>Home page</div>
+              <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
+                Open this page when you select Home
+              </div>
+            </div>
+            <input
+              type="text"
+              value={settings.homePage}
+              onChange={(e) => onUpdateSettings({ ...settings, homePage: e.target.value })}
+              aria-label="Home page URL"
+              style={{
+                width: 'min(320px, 55%)',
+                backgroundColor: 'var(--chrome-omnibox-bg)',
+                color: 'var(--chrome-text-primary)',
+                border: '1px solid var(--chrome-border-subtle)',
+                borderRadius: 4,
+                padding: '6px 10px',
+                fontSize: 13,
+              }}
+            />
           </div>
 
           <div

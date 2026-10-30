@@ -184,6 +184,7 @@ export interface SafeFetchOptions {
   body?: Buffer | string;
   cookieJar?: CookieJar;
   referrer?: string;
+  shieldsEnabled?: boolean;
 }
 
 export interface SafeFetchResponse {
@@ -208,7 +209,7 @@ const TIMEOUT_MS = 15000;
  * - Streaming support
  */
 export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}): Promise<SafeFetchResponse> {
-  let currentUrl = stripTrackingParams(rawUrl);
+  let currentUrl = options.shieldsEnabled === false ? rawUrl : stripTrackingParams(rawUrl);
   let currentMethod = (options.method || 'GET').toUpperCase();
   let currentBody = options.body;
 
@@ -218,7 +219,7 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}):
       throw new SsfError(`Protocol ${parsed.protocol} is not supported`, 'ERR_UNKNOWN_URL_SCHEME');
     }
 
-    if (isBlocked(parsed.hostname)) {
+    if (options.shieldsEnabled !== false && isBlocked(parsed.hostname)) {
       throw new SsfError(`Site is blocked by privacy shields: ${parsed.hostname}`, 'ERR_BLOCKED_BY_CLIENT');
     }
 
