@@ -25,6 +25,20 @@ export interface SearchResponse {
   canOpenInNewTabUrl?: string;
 }
 
+export function getDirectSearchUrl(query: string, requestedEngine = 'Google'): string {
+  const encodedQuery = encodeURIComponent(query);
+  switch (requestedEngine.toLowerCase()) {
+    case 'brave':
+      return `https://search.brave.com/search?q=${encodedQuery}`;
+    case 'duckduckgo':
+      return `https://duckduckgo.com/?q=${encodedQuery}`;
+    case 'bing':
+      return `https://www.bing.com/search?q=${encodedQuery}`;
+    default:
+      return `https://www.google.com/search?q=${encodedQuery}`;
+  }
+}
+
 /**
  * Decodes DuckDuckGo redirect URL (/l/?uddg=...) to extract original destination URL.
  */
@@ -206,14 +220,17 @@ export async function performSearch(query: string, requestedEngine = 'Google'): 
 
   const knowledgePanel = await wikiKnowledgePromise;
 
-  // Real engine URL for "Open in new tab"
-  let directEngineUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-  if (requestedEngine.toLowerCase() === 'brave') {
-    directEngineUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
-  } else if (requestedEngine.toLowerCase() === 'duckduckgo') {
-    directEngineUrl = `https://duckduckgo.com/?q=${encodeURIComponent(query)}`;
-  } else if (requestedEngine.toLowerCase() === 'bing') {
-    directEngineUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
+  const directEngineUrl = getDirectSearchUrl(query, requestedEngine);
+
+  if (results.length === 0) {
+    backend = 'Direct search fallback';
+    warningNotice = `Search results could not be fetched automatically. Open the ${requestedEngine} results directly instead.`;
+    results.push({
+      title: `Search "${query}" with ${requestedEngine}`,
+      url: directEngineUrl,
+      snippet: `Open the full search results on ${requestedEngine}.`,
+      sourceBackend: backend,
+    });
   }
 
   return {

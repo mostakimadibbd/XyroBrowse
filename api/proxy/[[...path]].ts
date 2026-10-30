@@ -1,24 +1,22 @@
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import { stream } from 'hono/streaming';
-import { validateHost, isPrivateIp, normalizeIp, SafeFetchOptions, safeFetch, SsfError } from '@/server/safeFetch';
-import { rewriteHtml, rewriteCss, toProxyUrl, fromProxyPath } from '@/server/rewriteHtml';
-import { extractArticle } from '@/server/reader';
-import { performSearch } from '@/server/search';
-import { getCookieJar, clearCookieJar } from '@/server/cookieJar';
-import { stripTrackingParams, isBlocked } from '@/server/blocklist';
-import { env } from '@/api/env';
+import { once } from 'node:events';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { safeFetch, SsfError } from '../../server/safeFetch.js';
+import { rewriteHtml, rewriteCss } from '../../server/rewriteHtml.js';
+import { extractArticle } from '../../server/reader.js';
+import { performSearch } from '../../server/search.js';
+import { getCookieJar, clearCookieJar } from '../../server/cookieJar.js';
+import { documentNavRateLimiter } from '../../server/rateLimit.js';
 
-const app = new Hono();
-
-app.use('*', cors());
+const app = new Hono().basePath('/api');
 
 function escapeHtml(str: string): string {
   return String(str)
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
 
@@ -123,6 +121,9 @@ app.all('/proxy/:origin/**', async (c) => {
   const secFetchDest = c.req.header('sec-fetch-dest') || '';
   if (secFetchDest === 'document' || secFetchDest === 'iframe') {
     const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1';
+    if (!documentNavRateLimiter.check(clientIp.split(',')[0].trim())) {
+      return c.json({ error: 'Too Many Requests', code: 'ERR_TOO_MANY_REQUESTS' }, 429);
+    }
   }
 
   if (c.req.method === 'OPTIONS') {
@@ -164,7 +165,6 @@ app.all('/proxy/:origin/**', async (c) => {
 
     c.res.headers.set('Content-Security-Policy', "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads");
     c.res.headers.set('Referrer-Policy', 'unsafe-url');
-    c.res.headers.set('Access-Control-Allow-Origin', '*');
     c.res.headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition, ETag, X-Xyro-Final-Url, X-Xyro-Blocked');
     c.res.headers.set('X-Xyro-Final-Url', fetched.finalUrl);
 
@@ -357,4 +357,70 @@ app.get('/download', async (c) => {
   }
 });
 
-export default app;
+interface VercelRequest extends IncomingMessage {
+  body?: unknown;
+}
+
+function getRequestBody(body: unknown, contentType: string): BodyInit | undefined {
+  if (typeof body === 'string') return body;
+  if (body instanceof Uint8Array) return new Uint8Array(body);
+  if (!body || typeof body !== 'object') return undefined;
+
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    const formData = new URLSearchParams();
+    for (const [key, value] of Object.entries(body)) {
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        formData.set(key, String(value));
+      }
+    }
+    return formData;
+  }
+
+  return JSON.stringify(body);
+}
+
+export default async function handler(req: VercelRequest, res: ServerResponse): Promise<void> {
+  try {
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (typeof value === 'string') headers.set(name, value);
+      else if (Array.isArray(value)) headers.set(name, value.join(', '));
+    }
+
+    const host = headers.get('x-forwarded-host')?.split(',')[0] || headers.get('host') || 'localhost';
+    const protocol = headers.get('x-forwarded-proto')?.split(',')[0] || 'https';
+    const url = new URL(req.url || '/', `${protocol}://${host}`);
+    const method = (req.method || 'GET').toUpperCase();
+    const contentType = headers.get('content-type') || '';
+    const body = method === 'GET' || method === 'HEAD'
+      ? undefined
+      : getRequestBody(req.body, contentType);
+    const request = new Request(url, { method, headers, body });
+    const response = await app.fetch(request);
+
+    res.statusCode = response.status;
+    response.headers.forEach((value, name) => res.setHeader(name, value));
+
+    if (!response.body) {
+      res.end();
+      return;
+    }
+
+    const reader = response.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!res.write(value) && !res.destroyed) await once(res, 'drain');
+    }
+    res.end();
+  } catch (error) {
+    console.error('Vercel proxy function failed:', error);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ error: 'Proxy request failed', code: 'ERR_PROXY_FAILED' }));
+    } else {
+      res.destroy(error instanceof Error ? error : undefined);
+    }
+  }
+}
