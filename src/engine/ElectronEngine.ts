@@ -19,6 +19,7 @@ declare global {
       openDevTools: (tabId: string) => void;
       clearBrowsingData: (options: { clearCookies: boolean; clearCache: boolean }) => Promise<void>;
       clearIncognitoSession: (tabId: string) => Promise<void>;
+      setShieldsEnabled: (enabled: boolean) => void;
       on: (channel: string, callback: (...args: any[]) => void) => () => void;
     };
   }

@@ -16,10 +16,14 @@ export interface ReaderArticle {
 /**
  * Parses article content from a target URL using Mozilla Readability with fallback to r.jina.ai.
  */
-export async function extractArticle(targetUrl: string, cookieJar?: CookieJar): Promise<ReaderArticle> {
+export async function extractArticle(
+  targetUrl: string,
+  cookieJar?: CookieJar,
+  shieldsEnabled = true
+): Promise<ReaderArticle> {
   try {
     // 1. Fetch live page HTML via safeFetch
-    const fetched = await safeFetch(targetUrl, { cookieJar });
+    const fetched = await safeFetch(targetUrl, { cookieJar, shieldsEnabled });
     let html = '';
     if (fetched.buffer) {
       html = fetched.buffer.toString('utf-8');

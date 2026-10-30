@@ -224,7 +224,24 @@ test('Proxy Fixture Server - verifies relative CSS, modules, login jar, range, a
     ).html;
     assert.match(privateHtml, /__xyro_sid=c0a80123-4567-489a-bcde-123456789abc/);
     assert.match(privateHtml, /const SESSION_ID = "c0a80123-4567-489a-bcde-123456789abc"/);
-    } finally {
+
+    const unshieldedUrl = toProxyUrl(
+      `${baseUrl}/foo?utm_source=example`,
+      undefined,
+      undefined,
+      false
+    );
+    assert.match(unshieldedUrl, /__xyro_shields=off/);
+    const unshieldedHtml = rewriteHtml(
+      '<html><head></head><body><img src="https://doubleclick.net/ad.png"></body></html>',
+      `${baseUrl}/`,
+      undefined,
+      undefined,
+      false
+    );
+    assert.equal(unshieldedHtml.blockedCount, 0);
+    assert.match(unshieldedHtml.html, /doubleclick\.net/);
+  } finally {
     server.close();
   }
 });

@@ -89,6 +89,9 @@ async function createWindow() {
     if (partition !== 'persist:xyro' && !partition.startsWith('incognito-')) {
       params.partition = 'persist:xyro';
     }
+    if (params.partition.startsWith('incognito-')) {
+      adblocker.attachToSession(session.fromPartition(params.partition));
+    }
 
     // 3. Enforce secure webPreferences
     webPreferences.contextIsolation = true;
@@ -157,6 +160,14 @@ ipcMain.on('xyro-tab-set-active', (_evt, { tabId }) => {
 
 ipcMain.handle('xyro-search-suggest', async (_evt, { query, engine }) => {
   return searchSuggest.getSuggestions(query, engine);
+});
+
+ipcMain.on('xyro-set-shields-enabled', (_evt, enabled: unknown) => {
+  if (typeof enabled !== 'boolean') {
+    console.warn('Ignored invalid privacy-shields setting.');
+    return;
+  }
+  adblocker.setEnabled(enabled);
 });
 
 ipcMain.handle(

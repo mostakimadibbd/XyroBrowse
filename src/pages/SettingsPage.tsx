@@ -1,6 +1,6 @@
 import React from 'react';
-import { BrowserSettings, SearchEngine } from '../types';
-import { Settings, Search, Palette, Shield, Smartphone, Trash2 } from 'lucide-react';
+import { BrowserSettings } from '../types';
+import { Settings, Search, Palette, Shield, Trash2 } from 'lucide-react';
 import { SEARCH_ENGINES } from '../lib/url';
 
 interface SettingsPageProps {
@@ -16,6 +16,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   return (
     <div
+      className="chrome-settings-page"
       style={{
         width: '100%',
         height: '100%',

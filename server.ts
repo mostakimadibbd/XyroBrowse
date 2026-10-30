@@ -85,11 +85,13 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
   const subpath = (req.params as any)[0] || '';
   const proxyRequestUrl = new URL(req.url, 'http://xyro.local');
   const privateSessionId = proxyRequestUrl.searchParams.get('__xyro_sid');
+  const shieldsEnabled = proxyRequestUrl.searchParams.get('__xyro_shields') !== 'off';
   if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
     res.status(400).send('Invalid private session');
     return;
   }
   proxyRequestUrl.searchParams.delete('__xyro_sid');
+  proxyRequestUrl.searchParams.delete('__xyro_shields');
   const queryStr = proxyRequestUrl.search;
 
   let origin = '';
@@ -166,6 +168,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       body: bodyBuffer,
       cookieJar: jar,
       referrer: targetUrl,
+      shieldsEnabled,
     });
 
     const contentType = fetched.contentType.toLowerCase();
@@ -206,7 +209,13 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       }
 
       const rawHtml = Buffer.concat(chunks).toString('utf-8');
-      const { html, blockedCount } = rewriteHtml(rawHtml, fetched.finalUrl, undefined, privateSessionId || undefined);
+      const { html, blockedCount } = rewriteHtml(
+        rawHtml,
+        fetched.finalUrl,
+        undefined,
+        privateSessionId || undefined,
+        shieldsEnabled
+      );
 
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('X-Xyro-Blocked', String(blockedCount));
@@ -230,7 +239,12 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       }
 
       const rawCss = Buffer.concat(chunks).toString('utf-8');
-      const rewrittenCss = rewriteCss(rawCss, fetched.finalUrl, privateSessionId || undefined);
+      const rewrittenCss = rewriteCss(
+        rawCss,
+        fetched.finalUrl,
+        privateSessionId || undefined,
+        shieldsEnabled
+      );
       res.setHeader('Content-Type', 'text/css; charset=utf-8');
       res.status(fetched.status).send(rewrittenCss);
       return;
@@ -317,6 +331,7 @@ app.get('/api/reader', async (req: Request, res: Response) => {
 
   const targetUrl = req.query.url as string;
   const privateSessionId = req.query.__xyro_sid as string | undefined;
+  const shieldsEnabled = req.query.__xyro_shields !== 'off';
   if (!targetUrl) {
     res.status(400).json({ error: 'Missing target URL' });
     return;
@@ -330,7 +345,7 @@ app.get('/api/reader', async (req: Request, res: Response) => {
     const cookieJar = privateSessionId
       ? getCookieJar(`private:${privateSessionId}`)
       : getCookieJar((req as any).xyro_sid);
-    const article = await extractArticle(targetUrl, cookieJar);
+    const article = await extractArticle(targetUrl, cookieJar, shieldsEnabled);
     res.json(article);
   } catch (err: unknown) {
     res.status(502).json({
@@ -371,6 +386,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
 app.get('/api/download', async (req: Request, res: Response) => {
   const targetUrl = req.query.url as string;
   const privateSessionId = req.query.__xyro_sid as string | undefined;
+  const shieldsEnabled = req.query.__xyro_shields !== 'off';
   if (!targetUrl) {
     res.status(400).send('Missing target URL');
     return;
@@ -385,7 +401,7 @@ app.get('/api/download', async (req: Request, res: Response) => {
       ? `private:${privateSessionId}`
       : (req as any).xyro_sid;
     const jar = getCookieJar(sid);
-    const fetched = await safeFetch(targetUrl, { cookieJar: jar });
+    const fetched = await safeFetch(targetUrl, { cookieJar: jar, shieldsEnabled });
 
     let fileName = 'download';
     try {

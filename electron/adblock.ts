@@ -7,8 +7,12 @@ import { TRACKING_PARAMS, stripTrackingParams } from '../server/blocklist.js';
 
 export class DesktopAdblocker {
   private blocker: ElectronBlocker | null = null;
+  private sessions = new Set<Session>();
   private allowlist = new Set<string>();
   private tabCounts = new Map<number, number>();
+  private enabled = true;
+  private onBlocked?: (webContentsId: number, count: number) => void;
+  private blockedRequestListenerAttached = false;
 
   public async initialize(): Promise<void> {
     const cacheDir = path.join(app.getPath('userData'), 'adblock');
@@ -34,22 +38,28 @@ export class DesktopAdblocker {
   }
 
   public attachToSession(session: Session, onBlocked?: (webContentsId: number, count: number) => void): void {
+    if (this.sessions.has(session)) return;
+    this.sessions.add(session);
     if (this.blocker) {
-      this.blocker.enableBlockingInSession(session);
+      if (this.enabled) this.blocker.enableBlockingInSession(session);
 
-      this.blocker.on('request-blocked', (request: any) => {
-        const tabId = request.tabId;
-        if (typeof tabId === 'number') {
-          const current = (this.tabCounts.get(tabId) || 0) + 1;
-          this.tabCounts.set(tabId, current);
-          if (onBlocked) onBlocked(tabId, current);
-        }
-      });
+      if (onBlocked) this.onBlocked = onBlocked;
+      if (!this.blockedRequestListenerAttached) {
+        this.blocker.on('request-blocked', (request: any) => {
+          const tabId = request.tabId;
+          if (typeof tabId === 'number') {
+            const current = (this.tabCounts.get(tabId) || 0) + 1;
+            this.tabCounts.set(tabId, current);
+            this.onBlocked?.(tabId, current);
+          }
+        });
+        this.blockedRequestListenerAttached = true;
+      }
     }
 
     // Strip tracking parameters on top-level navigation
     session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-      if (details.resourceType === 'mainFrame') {
+      if (this.enabled && details.resourceType === 'mainFrame') {
         const cleaned = stripTrackingParams(details.url);
         if (cleaned !== details.url) {
           callback({ redirectURL: cleaned });
@@ -58,6 +68,17 @@ export class DesktopAdblocker {
       }
       callback({});
     });
+  }
+
+  public setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    if (!this.blocker) return;
+
+    for (const browserSession of this.sessions) {
+      if (enabled) this.blocker.enableBlockingInSession(browserSession);
+      else this.blocker.disableBlockingInSession(browserSession);
+    }
   }
 
   public isAllowlisted(url: string): boolean {

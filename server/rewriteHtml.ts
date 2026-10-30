@@ -382,7 +382,13 @@ export function rewriteHtml(
   const baseTag = `<base href="${docBaseUrl}">`;
 
   // 14. Inject client shim script into <head> as first element
-  const shim = `<script>${getInjectedScript(pageUrl, blockedCount, pageId, sessionId, shieldsEnabled)}</script>`;
+  const shim = `<script>${getInjectedScript(
+    pageUrl,
+    blockedCount,
+    pageId,
+    sessionId,
+    shieldsEnabled
+  )}</script>`;
 
   if ($('head').length > 0) {
     $('head').prepend(baseTag);

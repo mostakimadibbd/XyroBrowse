@@ -34,9 +34,7 @@ export function getInjectedScript(
         const match = proxyUrl.pathname.match(/^\\/api\\/p\\/([^/]+)(.*)$/);
         if (match) {
           const destination = new URL(match[2] || '/', decodeURIComponent(match[1]));
-          proxyUrl.searchParams.forEach(function(value, key) {
-            if (key !== '__xyro_sid' && key !== '__xyro_shields') destination.searchParams.append(key, value);
-          });
+          destination.search = proxyUrl.search;
           destination.hash = proxyUrl.hash;
           destination.searchParams.delete('__xyro_sid');
           destination.searchParams.delete('__xyro_shields');
@@ -328,7 +326,7 @@ export function getInjectedScript(
     }
     window.parent.postMessage({
       type: 'xyro-loaded',
-      url: TARGET_URL,
+      url: resolveToTarget(window.location.href),
       title: document.title || TARGET_URL,
       faviconUrl: faviconUrl,
       blocked: INITIAL_BLOCKED,

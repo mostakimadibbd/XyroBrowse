@@ -30,9 +30,16 @@ export const TabStrip: React.FC<TabStripProps> = ({
           <div
             key={tab.id}
             role="tab"
+            tabIndex={0}
             aria-selected={isActive}
             className={`chrome-tab ${isActive ? 'active' : ''} ${tab.pinned ? 'pinned' : ''}`}
             onClick={() => onSelectTab(tab.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelectTab(tab.id);
+              }
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               onTogglePin(tab.id);

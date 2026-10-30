@@ -27,14 +27,47 @@ export class Storage {
       if (data) {
         const parsed: unknown = JSON.parse(data);
         if (Array.isArray(parsed)) {
-          const tabs = parsed.filter(
-            (tab): tab is Tab =>
+          const tabs = parsed
+            .filter(
+              (tab): tab is Partial<Tab> & Pick<Tab, 'id' | 'url'> =>
               !!tab &&
               typeof tab === 'object' &&
               typeof tab.id === 'string' &&
               typeof tab.url === 'string' &&
               !tab.isIncognito
-          );
+            )
+            .map((tab): Tab => {
+              const history = Array.isArray(tab.history)
+                ? tab.history.filter((url): url is string => typeof url === 'string')
+                : [];
+              const safeHistory = history.length > 0 ? history : [tab.url];
+              return {
+                id: tab.id,
+                url: tab.url,
+                contentUrl: tab.url,
+                title: typeof tab.title === 'string' ? tab.title : 'New Tab',
+                favicon: typeof tab.favicon === 'string' ? tab.favicon : undefined,
+                isIncognito: false,
+                pinned: tab.pinned === true,
+                history: safeHistory,
+                historyIndex:
+                  typeof tab.historyIndex === 'number'
+                    ? Math.max(0, Math.min(safeHistory.length - 1, tab.historyIndex))
+                    : safeHistory.length - 1,
+                zoom: typeof tab.zoom === 'number' && tab.zoom >= 25 && tab.zoom <= 500
+                  ? tab.zoom
+                  : 100,
+                isLoading: false,
+                isReaderMode: false,
+                autoDarkMode: tab.autoDarkMode === true,
+                viewSource: false,
+                blockedCount:
+                  typeof tab.blockedCount === 'number' && tab.blockedCount >= 0
+                    ? tab.blockedCount
+                    : 0,
+                lastActive: typeof tab.lastActive === 'number' ? tab.lastActive : Date.now(),
+              };
+            });
           if (tabs.length > 0) return tabs;
         }
       }

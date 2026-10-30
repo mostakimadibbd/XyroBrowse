@@ -26,6 +26,15 @@ To package for production:
 npm run build:desktop
 ```
 
+### Browser features
+- Tabbed browsing with persisted regular tabs, per-tab history, pinning, and private/incognito tabs.
+- Address-bar navigation and search, search-engine selection, keyword shortcuts, suggestions from history and bookmarks, and inline arithmetic.
+- Bookmarks, browsing history, downloads, reader mode, page find, zoom, themes, and configurable home page.
+- Lite-mode privacy shields, isolated private proxy cookie jars, and browser-data clearing.
+- Desktop mode uses Electron's bundled Chromium for real web rendering; Lite mode is an iframe-based proxy preview.
+
+Use Desktop Mode for websites that depend on modern browser APIs, third-party authentication, media, or complex application behavior. Lite Mode is deliberately limited by its proxy and sandbox architecture and is not a replacement for a full Chromium browser.
+
 ---
 
 ## 🚫 Not Supported (Platform Boundaries & Limitations)

@@ -10,7 +10,11 @@ import { AboutPage } from '../pages/AboutPage';
 import { SourceViewer } from './SourceViewer';
 import { ReaderView } from './ReaderView';
 
-export function toProxyUrl(url: string, sessionId?: string): string {
+export function toProxyUrl(
+  url: string,
+  sessionId?: string,
+  shieldsEnabled = true
+): string {
   try {
     const trimmed = url.trim();
     if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
@@ -18,6 +22,8 @@ export function toProxyUrl(url: string, sessionId?: string): string {
     }
     const u = new URL(trimmed);
     if (sessionId) u.searchParams.set('__xyro_sid', sessionId);
+    if (shieldsEnabled) u.searchParams.delete('__xyro_shields');
+    else u.searchParams.set('__xyro_shields', 'off');
     const encOrigin = encodeURIComponent(u.origin);
     const sub = u.pathname + u.search + u.hash;
     return `/api/p/${encOrigin}${sub.startsWith('/') ? sub : '/' + sub}`;
@@ -265,6 +271,7 @@ export const Viewport: React.FC<ViewportProps> = ({
               key={`${t.id}:${t.reloadKey || 0}`}
               data-tab-id={t.id}
               src={t.contentUrl || t.url}
+              allowpopups="true"
               partition={t.isIncognito ? `incognito-${t.id}` : 'persist:xyro'}
               className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
               style={{
@@ -281,7 +288,7 @@ export const Viewport: React.FC<ViewportProps> = ({
           <iframe
             key={`${t.id}:${t.reloadKey || 0}`}
             data-tab-id={t.id}
-            src={toProxyUrl(t.contentUrl || t.url, t.proxySessionId)}
+            src={toProxyUrl(t.contentUrl || t.url, t.proxySessionId, settings.shieldsEnabled)}
             title={t.title}
             className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
             sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"

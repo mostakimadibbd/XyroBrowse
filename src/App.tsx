@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Tab,
-  SearchEngine,
   BookmarkNode,
   HistoryItem,
   DownloadItem,
@@ -9,7 +8,7 @@ import {
   ContextMenuState,
 } from './types';
 import { SEARCH_ENGINES, resolveOmniboxInput } from './lib/url';
-import { Storage, DEFAULT_SETTINGS } from './state/persist';
+import { Storage } from './state/persist';
 import { downloadFile } from './lib/downloads';
 import { TabStrip } from './components/TabStrip';
 import { Toolbar } from './components/Toolbar';
@@ -124,6 +123,12 @@ export default function App() {
   useEffect(() => {
     Storage.saveSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    if (window.xyro?.platform === 'electron') {
+      window.xyro.setShieldsEnabled(settings.shieldsEnabled);
+    }
+  }, [settings.shieldsEnabled]);
 
   // 4. Tab Actions
   const createNewTab = useCallback((url = 'chrome://newtab', isIncognito = false) => {
@@ -331,6 +336,24 @@ export default function App() {
     );
   }, [activeTab.url, activeTabId]);
 
+  const updateSettings = useCallback((nextSettings: BrowserSettings) => {
+    if (nextSettings.shieldsEnabled !== settings.shieldsEnabled && activeTab.url.startsWith('http')) {
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === activeTabId
+            ? {
+                ...tab,
+                contentUrl: tab.url,
+                isLoading: true,
+                reloadKey: (tab.reloadKey || 0) + 1,
+              }
+            : tab
+        )
+      );
+    }
+    setSettings(nextSettings);
+  }, [activeTab.id, activeTab.url, activeTabId, settings.shieldsEnabled]);
+
   const stopLoading = useCallback(() => {
     const frame = document.querySelector<HTMLIFrameElement>(
       `iframe[data-tab-id="${activeTabId}"]`
@@ -361,6 +384,7 @@ export default function App() {
       if (activeTab.proxySessionId) {
         readerParams.set('__xyro_sid', activeTab.proxySessionId);
       }
+      if (!settings.shieldsEnabled) readerParams.set('__xyro_shields', 'off');
       const res = await fetch(`/api/reader?${readerParams}`);
       if (res.ok) {
         const article = await res.json();
@@ -375,7 +399,7 @@ export default function App() {
     } catch {
       // Failed to extract reader mode
     }
-  }, [activeTab, activeTabId]);
+  }, [activeTab, activeTabId, settings.shieldsEnabled]);
 
   // 7. Bookmarking
   const isCurrentBookmarked = useMemo(() => {
@@ -426,9 +450,13 @@ export default function App() {
 
   // 10. Downloads
   const handleDownload = useCallback(async (url: string) => {
-    const item = await downloadFile(url, activeTab.proxySessionId);
+    const item = await downloadFile(
+      url,
+      activeTab.proxySessionId,
+      settings.shieldsEnabled
+    );
     if (!activeTab.isIncognito) setDownloads((prev) => [item, ...prev]);
-  }, [activeTab.isIncognito, activeTab.proxySessionId]);
+  }, [activeTab.isIncognito, activeTab.proxySessionId, settings.shieldsEnabled]);
 
   const printPage = useCallback(() => {
     const iframe = document.querySelector<HTMLIFrameElement>(
@@ -520,6 +548,10 @@ export default function App() {
     shift: boolean,
     alt = false
   ) => {
+    if (key === 'F11') {
+      toggleFullscreen();
+      return;
+    }
     if (key === 'F5') {
       reload();
       return;
@@ -549,7 +581,9 @@ export default function App() {
           if (shift) createNewTab('chrome://newtab', true);
           break;
         case 'l': {
-          const omnibox = document.querySelector<HTMLInputElement>('.chrome-omnibox-input');
+          const omnibox = document.querySelector<HTMLInputElement>(
+            '.chrome-omnibox-input, .chrome-mobile-address input'
+          );
           omnibox?.focus();
           omnibox?.select();
           break;
@@ -602,6 +636,7 @@ export default function App() {
     stopLoading,
     findInPage,
     printPage,
+    toggleFullscreen,
   ]);
 
   useEffect(() => {
@@ -717,9 +752,9 @@ export default function App() {
           onToggleBookmark={toggleBookmark}
           onToggleReaderMode={toggleReaderMode}
           onChangeEngine={(eng) => setSettings({ ...settings, defaultSearchEngine: eng.id })}
-          onToggleShields={() => setShowShields(!showShields)}
+          onToggleShields={() => setShowShields((visible) => !visible)}
           onOpenDownloads={() => navigate('chrome://downloads')}
-          onToggleMenu={() => setShowMenu(!showMenu)}
+          onToggleMenu={() => setShowMenu((visible) => !visible)}
         />
       )}
 
@@ -782,7 +817,7 @@ export default function App() {
           onDeleteHistoryItem={(id) => setHistory((prev) => prev.filter((h) => h.id !== id))}
           onClearHistory={() => setHistory([])}
           onClearDownloads={() => setDownloads([])}
-          onUpdateSettings={setSettings}
+          onUpdateSettings={updateSettings}
           onOpenClearDialog={() => setShowClearDialog(true)}
           onExitReaderMode={() =>
             setTabs((prev) =>
@@ -809,12 +844,17 @@ export default function App() {
           canGoBack={activeTab.historyIndex > 0}
           canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
           tabCount={tabs.length}
+          url={activeTab.url}
+          isLoading={activeTab.isLoading}
           onBack={goBack}
           onForward={goForward}
           onHome={() => navigate(settings.homePage)}
           onNewTab={() => createNewTab()}
           onOpenTabSwitcher={() => setShowTabSwitcher(true)}
-          onToggleMenu={() => setShowMenu(!showMenu)}
+          onToggleMenu={() => setShowMenu((visible) => !visible)}
+          onNavigate={navigate}
+          onReload={reload}
+          onStop={stopLoading}
         />
       )}
 
@@ -854,7 +894,7 @@ export default function App() {
           blockedCount={activeTab.blockedCount}
           shieldsEnabled={settings.shieldsEnabled}
           onToggleShields={() =>
-            setSettings({ ...settings, shieldsEnabled: !settings.shieldsEnabled })
+            updateSettings({ ...settings, shieldsEnabled: !settings.shieldsEnabled })
           }
           onClose={() => setShowShields(false)}
         />

@@ -6,6 +6,7 @@ import { DownloadItem } from '../types';
 export async function downloadFile(
   url: string,
   sessionId?: string,
+  shieldsEnabled = true,
   onProgress?: (receivedBytes: number, totalBytes: number) => void
 ): Promise<DownloadItem> {
   const downloadId = 'dl-' + Math.random().toString(36).slice(2, 9);
@@ -27,10 +28,10 @@ export async function downloadFile(
   };
 
   try {
-    const privateSession = sessionId
-      ? `&__xyro_sid=${encodeURIComponent(sessionId)}`
-      : '';
-    const res = await fetch(`/api/download?url=${encodeURIComponent(url)}${privateSession}`);
+    const params = new URLSearchParams({ url });
+    if (sessionId) params.set('__xyro_sid', sessionId);
+    if (!shieldsEnabled) params.set('__xyro_shields', 'off');
+    const res = await fetch(`/api/download?${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const contentLength = res.headers.get('content-length');

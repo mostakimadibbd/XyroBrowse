@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('xyro', {
     ipcRenderer.invoke('xyro-clear-browsing-data', options),
   clearIncognitoSession: (tabId: string) =>
     ipcRenderer.invoke('xyro-clear-incognito-session', { partition: `incognito-${tabId}` }),
+  setShieldsEnabled: (enabled: boolean) => ipcRenderer.send('xyro-set-shields-enabled', enabled),
   on: (channel: string, callback: (...args: any[]) => void) => {
     const validChannels = ['engine-event', 'download-started', 'download-progress', 'download-completed'];
     if (validChannels.includes(channel)) {
