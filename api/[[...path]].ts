@@ -3,7 +3,6 @@ import { stream } from 'hono/streaming';
 import { safeFetch, SsfError } from '../../server/safeFetch.js';
 import { rewriteHtml, rewriteCss, toProxyUrl } from '../../server/rewriteHtml.js';
 import { extractArticle } from '../../server/reader.js';
-import { performSearch } from '../../server/search.js';
 import { getCookieJar, clearCookieJar } from '../../server/cookieJar.js';
 import { documentNavRateLimiter } from '../../server/rateLimit.js';
 
@@ -259,27 +258,6 @@ app.all('/p/:origin/**', async (c) => {
     c.res.headers.set('Content-Security-Policy', 'sandbox allow-scripts allow-forms allow-popups');
     c.res.headers.set('X-Xyro-Error-Code', errorCode);
     return c.html(errorHtml, 502);
-  }
-});
-
-app.get('/search', async (c) => {
-  const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1';
-  
-  const query = c.req.query('q');
-  const engine = c.req.query('engine') || 'Google';
-
-  if (!query) {
-    return c.json({ error: 'Missing query parameter' }, 400);
-  }
-
-  try {
-    const searchData = await performSearch(query, engine);
-    return c.json(searchData);
-  } catch (err: unknown) {
-    return c.json({
-      error: 'Search error: ' + (err as Error).message,
-      code: 'ERR_SEARCH_FAILED',
-    }, 500);
   }
 });
 

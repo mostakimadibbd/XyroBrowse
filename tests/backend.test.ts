@@ -4,6 +4,7 @@ import { isPrivateIp } from '../server/safeFetch.js';
 import { isBlocked, stripTrackingParams } from '../server/blocklist.js';
 import { rewriteHtml, resolveUrl } from '../server/rewriteHtml.js';
 import { decodeDdgUrl, getDirectSearchUrl } from '../server/search.js';
+import { GET as searchApiGet } from '../api/search.js';
 
 test('SSRF Protection - isPrivateIp blocks dangerous ranges', () => {
   // Loopback
@@ -92,4 +93,16 @@ test('Search - direct fallback URLs honor the selected search engine', () => {
   assert.equal(getDirectSearchUrl(query, 'Brave'), 'https://search.brave.com/search?q=browser%20privacy');
   assert.equal(getDirectSearchUrl(query, 'DuckDuckGo'), 'https://duckduckgo.com/?q=browser%20privacy');
   assert.equal(getDirectSearchUrl(query, 'Bing'), 'https://www.bing.com/search?q=browser%20privacy');
+});
+
+test('Search API - validates missing queries and unsupported engines', async () => {
+  const missingQuery = await searchApiGet(new Request('https://xyro.test/api/search'));
+  assert.equal(missingQuery.status, 400);
+  assert.equal((await missingQuery.json()).code, 'ERR_MISSING_QUERY');
+
+  const invalidEngine = await searchApiGet(
+    new Request('https://xyro.test/api/search?q=browser&engine=unknown')
+  );
+  assert.equal(invalidEngine.status, 400);
+  assert.equal((await invalidEngine.json()).code, 'ERR_INVALID_ENGINE');
 });
