@@ -1,342 +1,235 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  Search,
-  Lock,
-  Unlock,
-  Shield,
-  Star,
-  BookOpen,
-  Copy,
-  Check,
-  Calculator,
-  Compass,
-  ArrowRight,
-  Sparkles,
-  ChevronDown,
-  History,
-  Bookmark,
-  ExternalLink,
-} from 'lucide-react';
-import { BookmarkItem, HistoryItem, SearchEngine } from '../types/browser';
-import { parseOmniboxQuery, SEARCH_ENGINES, evaluateMath } from '../utils/browserLogic';
+import { SearchEngine, BookmarkNode, HistoryItem } from '../types';
+import { Lock, Search, Star, BookOpen, Calculator, Globe, Clock, ChevronDown } from 'lucide-react';
+import { evaluateMath, cleanDisplayUrl, SEARCH_ENGINES } from '../lib/url';
 
 interface OmniboxProps {
-  currentUrl: string;
-  onNavigate: (url: string) => void;
-  currentEngine: SearchEngine;
-  onSelectEngine: (engine: SearchEngine) => void;
-  bookmarks: BookmarkItem[];
-  history: HistoryItem[];
+  url: string;
   isBookmarked: boolean;
+  isReaderMode: boolean;
+  canReaderMode: boolean;
+  currentEngine: SearchEngine;
+  history: HistoryItem[];
+  bookmarks: BookmarkNode[];
+  onNavigate: (url: string) => void;
   onToggleBookmark: () => void;
-  readerModeActive: boolean;
   onToggleReaderMode: () => void;
+  onChangeEngine: (engine: SearchEngine) => void;
 }
 
 export const Omnibox: React.FC<OmniboxProps> = ({
-  currentUrl,
-  onNavigate,
-  currentEngine,
-  onSelectEngine,
-  bookmarks,
-  history,
+  url,
   isBookmarked,
+  isReaderMode,
+  canReaderMode,
+  currentEngine,
+  history,
+  bookmarks,
+  onNavigate,
   onToggleBookmark,
-  readerModeActive,
   onToggleReaderMode,
+  onChangeEngine,
 }) => {
-  const [inputValue, setInputValue] = useState(currentUrl);
+  const [inputValue, setInputValue] = useState(url);
   const [isFocused, setIsFocused] = useState(false);
   const [showEngineDropdown, setShowEngineDropdown] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
-  const [copied, setCopied] = useState(false);
-
-  const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Sync input with current tab URL when not focused
+  // Sync input value when URL changes externally while not focused
   useEffect(() => {
     if (!isFocused) {
-      if (currentUrl === 'xyro://newtab') {
-        setInputValue('');
-      } else if (currentUrl.startsWith('xyro://search?')) {
-        const params = new URLSearchParams(currentUrl.split('?')[1]);
-        setInputValue(params.get('q') || '');
-      } else {
-        setInputValue(currentUrl);
-      }
+      setInputValue(url === 'chrome://newtab' ? '' : url);
     }
-  }, [currentUrl, isFocused]);
+  }, [url, isFocused]);
 
-  // Handle typing bang shortcut followed by space: !g , !b , !ddg , !bing , !ai
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    
-    // Check if user typed bang + space
-    const bangMatch = val.match(/^(![a-zA-Z]+)\s+(.*)$/);
-    if (bangMatch) {
-      const bang = bangMatch[1].toLowerCase();
-      const rest = bangMatch[2];
-      const matchedEngine = SEARCH_ENGINES.find((eng) => eng.bang.toLowerCase() === bang);
-      if (matchedEngine) {
-        onSelectEngine(matchedEngine);
-        setInputValue(rest);
-        return;
-      }
-    }
+  const mathResult = evaluateMath(inputValue);
 
-    setInputValue(val);
-    setSelectedIndex(-1);
+  // Filter history and bookmarks for autocomplete suggestions
+  const suggestions = React.useMemo(() => {
+    if (!inputValue.trim() || !isFocused) return [];
+    const q = inputValue.toLowerCase();
+
+    const historyMatches = history
+      .filter((h) => h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q))
+      .slice(0, 4)
+      .map((h) => ({
+        type: 'history' as const,
+        title: h.title,
+        url: h.url,
+      }));
+
+    const bookmarkMatches = bookmarks
+      .filter((b) => b.url && (b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q)))
+      .slice(0, 3)
+      .map((b) => ({
+        type: 'bookmark' as const,
+        title: b.title,
+        url: b.url!,
+      }));
+
+    return [...historyMatches, ...bookmarkMatches];
+  }, [inputValue, isFocused, history, bookmarks]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputValue.trim()) return;
+    setIsFocused(false);
+    if (inputRef.current) inputRef.current.blur();
+    onNavigate(inputValue);
   };
 
-  // Parse Omnibox suggestions
-  const { results } = parseOmniboxQuery(inputValue, currentEngine, bookmarks, history);
-
-  // Handle outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsFocused(false);
-        setShowEngineDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev < results.length - 1 ? prev + 1 : 0));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : results.length - 1));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (selectedIndex >= 0 && results[selectedIndex]) {
-        onNavigate(results[selectedIndex].targetUrl);
-      } else {
-        const { navigableUrl } = parseOmniboxQuery(inputValue, currentEngine, bookmarks, history);
-        onNavigate(navigableUrl);
-      }
-      setIsFocused(false);
-      inputRef.current?.blur();
-    } else if (e.key === 'Escape') {
-      setIsFocused(false);
-      setShowEngineDropdown(false);
-      inputRef.current?.blur();
-    }
+  const handleSelectSuggestion = (targetUrl: string) => {
+    setIsFocused(false);
+    onNavigate(targetUrl);
   };
 
-  const handleCopyUrl = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(currentUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  const isInternal = currentUrl.startsWith('xyro://');
-  const isHttps = currentUrl.startsWith('https://');
+  const displayPlaceholder = currentEngine
+    ? `Search ${currentEngine.name} or type a URL`
+    : 'Search or type a URL';
 
   return (
-    <div ref={containerRef} className="relative flex-1 max-w-2xl mx-2">
-      <div
-        className={`relative flex items-center h-9 px-2.5 rounded-xl bg-white/[0.05] border transition-all ${
-          isFocused
-            ? 'border-[#00F0FF] ring-2 ring-[#00F0FF]/25 bg-[#0C1019] shadow-lg shadow-[#00F0FF]/5'
-            : 'border-white/10 hover:border-white/20'
-        }`}
-      >
-        {/* Security / Protocol Indicator */}
-        <div className="flex items-center gap-1.5 mr-2 shrink-0">
-          {isInternal ? (
-            <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-[#00F0FF] bg-[#00F0FF]/15 px-2 py-0.5 rounded-md border border-[#00F0FF]/30">
-              <Shield className="w-3 h-3 text-[#00F0FF]" />
-              <span>xyro://</span>
-            </div>
-          ) : isHttps ? (
-            <div className="text-emerald-400 p-0.5" title="Secure TLS Encrypted Connection">
-              <Lock className="w-3.5 h-3.5" />
-            </div>
-          ) : (
-            <div className="text-amber-400 p-0.5" title="Insecure HTTP Connection">
-              <Unlock className="w-3.5 h-3.5" />
-            </div>
-          )}
-
-          {/* Search Engine Switcher Popover Button */}
-          <button
-            type="button"
+    <div className="chrome-omnibox-container">
+      <form onSubmit={handleSubmit}>
+        <div className={`chrome-omnibox-input-wrapper ${isFocused ? 'focused' : ''}`}>
+          {/* Security / Search engine indicator */}
+          <div
+            style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', paddingRight: 6 }}
             onClick={() => setShowEngineDropdown(!showEngineDropdown)}
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg hover:bg-white/10 text-xs font-semibold text-slate-200 transition-colors border border-white/5"
-            style={{
-              borderColor: `${currentEngine.color}40`,
-              backgroundColor: `${currentEngine.color}15`,
-            }}
-            title={`Active Engine: ${currentEngine.name} (Click to switch)`}
+            title={`Active search: ${currentEngine.name}. Click to change engine.`}
           >
-            <span className="font-bold text-[11px]" style={{ color: currentEngine.color }}>
-              {currentEngine.name.split(' ')[0]}
-            </span>
-            <ChevronDown className="w-3 h-3 text-slate-400" />
-          </button>
-        </div>
+            {url.startsWith('https://') ? (
+              <Lock size={13} style={{ color: '#81c995', marginRight: 4 }} />
+            ) : (
+              <Search size={13} style={{ color: '#9aa0a6', marginRight: 4 }} />
+            )}
+            <ChevronDown size={10} style={{ color: '#9aa0a6' }} />
+          </div>
 
-        {/* Input */}
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputValue}
-          onChange={handleInputChange}
-          onFocus={() => {
-            setIsFocused(true);
-            inputRef.current?.select();
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={`Search ${currentEngine.name} or type web address...`}
-          className="w-full bg-transparent text-xs md:text-sm text-white placeholder-slate-500 outline-none font-mono tracking-tight"
-        />
+          {/* Omnibox input */}
+          <input
+            ref={inputRef}
+            type="text"
+            className="chrome-omnibox-input"
+            value={isFocused ? inputValue : (url === 'chrome://newtab' ? '' : cleanDisplayUrl(url))}
+            placeholder={displayPlaceholder}
+            onFocus={() => {
+              setIsFocused(true);
+              setInputValue(url === 'chrome://newtab' ? '' : url);
+              setTimeout(() => inputRef.current?.select(), 10);
+            }}
+            onBlur={() => {
+              // Delay slightly so suggestion clicks register
+              setTimeout(() => setIsFocused(false), 200);
+            }}
+            onChange={(e) => setInputValue(e.target.value)}
+          />
 
-        {/* Trailing Action Icons */}
-        <div className="flex items-center gap-1 ml-1 shrink-0 text-slate-400">
           {/* Reader Mode Button */}
-          {!isInternal && (
+          {canReaderMode && (
             <button
               type="button"
+              className="chrome-btn-icon"
+              style={{ width: 24, height: 24, color: isReaderMode ? '#8ab4f8' : '#9aa0a6' }}
               onClick={onToggleReaderMode}
-              className={`p-1.5 rounded-lg transition-colors ${
-                readerModeActive
-                  ? 'text-[#00F0FF] bg-[#00F0FF]/20 border border-[#00F0FF]/40'
-                  : 'hover:text-white hover:bg-white/10'
-              }`}
-              title={readerModeActive ? 'Exit Reader Mode' : 'Clean Reader Mode'}
+              title={isReaderMode ? 'Exit Reader Mode' : 'Enter Reader Mode'}
             >
-              <BookOpen className="w-3.5 h-3.5" />
+              <BookOpen size={14} />
             </button>
           )}
 
-          {/* Copy URL */}
+          {/* Bookmark Star Button */}
           <button
             type="button"
-            onClick={handleCopyUrl}
-            className="p-1.5 rounded-lg hover:text-white hover:bg-white/10 transition-colors"
-            title="Copy URL"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-          </button>
-
-          {/* Star Bookmark Button */}
-          <button
-            type="button"
+            className="chrome-btn-icon"
+            style={{ width: 24, height: 24, color: isBookmarked ? '#8ab4f8' : '#9aa0a6' }}
             onClick={onToggleBookmark}
-            className={`p-1.5 rounded-lg transition-colors ${
-              isBookmarked
-                ? 'text-amber-400 hover:text-amber-300'
-                : 'hover:text-white hover:bg-white/10'
-            }`}
-            title={isBookmarked ? 'Remove Bookmark' : 'Add to Bookmarks Bar'}
+            title={isBookmarked ? 'Edit bookmark for this tab' : 'Bookmark this tab (Ctrl+D)'}
           >
-            <Star className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-amber-400 text-amber-400' : ''}`} />
+            <Star size={14} fill={isBookmarked ? '#8ab4f8' : 'none'} />
           </button>
         </div>
-      </div>
+      </form>
 
-      {/* Engine Switcher Dropdown Popover */}
+      {/* Engine Selection Popover */}
       {showEngineDropdown && (
-        <div className="absolute left-0 top-11 z-50 w-60 rounded-2xl bg-[#0D121D]/98 border border-white/15 shadow-2xl p-2 backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-100 space-y-1">
-          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-            <span>Select Search Engine</span>
-            <span className="font-mono text-[9px] text-[#00F0FF]">Type bang !g</span>
-          </div>
-          {SEARCH_ENGINES.map((engine) => {
-            const isSelected = currentEngine.id === engine.id;
-            return (
-              <button
-                key={engine.id}
-                type="button"
-                onClick={() => {
-                  onSelectEngine(engine);
-                  setShowEngineDropdown(false);
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                  isSelected
-                    ? 'bg-[#00F0FF]/15 text-white border border-[#00F0FF]/40 shadow-sm'
-                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: engine.color }}
-                  />
-                  <span>{engine.name}</span>
-                </div>
-                <span className="font-mono text-[10px] text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
-                  {engine.bang}
-                </span>
-              </button>
-            );
-          })}
+        <div
+          className="chrome-menu"
+          style={{ top: 34, left: 0, right: 'auto', minWidth: 160 }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {SEARCH_ENGINES.map((engine) => (
+            <button
+              key={engine.id}
+              className="chrome-menu-item"
+              onClick={() => {
+                onChangeEngine(engine);
+                setShowEngineDropdown(false);
+              }}
+            >
+              <Search size={14} style={{ color: currentEngine.id === engine.id ? '#8ab4f8' : '#9aa0a6' }} />
+              <span>{engine.name}</span>
+              <span className="chrome-menu-shortcut">{engine.bang}</span>
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Autocomplete Dropdown */}
-      {isFocused && inputValue.trim().length > 0 && results.length > 0 && (
-        <div className="absolute left-0 right-0 top-11 z-50 rounded-2xl bg-[#0D121D]/98 border border-[#00F0FF]/35 shadow-2xl shadow-black/90 p-2 backdrop-blur-2xl animate-in fade-in duration-100 space-y-1">
-          {results.map((res, idx) => {
-            const isSelected = selectedIndex === idx;
-
-            return (
-              <div
-                key={idx}
-                onMouseDown={() => {
-                  onNavigate(res.targetUrl);
-                  setIsFocused(false);
-                }}
-                className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all ${
-                  isSelected
-                    ? 'bg-[#00F0FF]/20 text-white border border-[#00F0FF]/40 shadow-sm'
-                    : 'hover:bg-white/5 text-slate-200'
-                }`}
-              >
-                <div className="flex items-center gap-3 min-w-0 pr-2">
-                  <div className="p-2 rounded-lg bg-white/5 text-slate-400 shrink-0">
-                    {res.type === 'math' ? (
-                      <Calculator className="w-4 h-4 text-emerald-400" />
-                    ) : res.type === 'unit' ? (
-                      <Compass className="w-4 h-4 text-amber-400" />
-                    ) : res.type === 'bookmark' ? (
-                      <Bookmark className="w-4 h-4 text-amber-400" />
-                    ) : res.type === 'history' ? (
-                      <History className="w-4 h-4 text-slate-400" />
-                    ) : res.type === 'internal' ? (
-                      <Shield className="w-4 h-4 text-[#00F0FF]" />
-                    ) : (
-                      <Search className="w-4 h-4 text-[#00F0FF]" />
-                    )}
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate text-white flex items-center gap-2">
-                      <span>{res.title}</span>
-                      {res.type === 'math' && (
-                        <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono">
-                          Instant Answer
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-400 truncate font-mono">
-                      {res.subtitle}
-                    </div>
-                  </div>
+      {/* Autocomplete suggestions dropdown */}
+      {isFocused && (mathResult || suggestions.length > 0) && (
+        <div className="chrome-omnibox-dropdown">
+          {/* Math calculation instant preview */}
+          {mathResult && (
+            <div
+              className="chrome-omnibox-item"
+              onMouseDown={() => {
+                setInputValue(mathResult);
+              }}
+            >
+              <Calculator size={16} style={{ color: '#8ab4f8' }} />
+              <div className="chrome-omnibox-item-meta">
+                <div className="chrome-omnibox-item-title" style={{ color: '#8ab4f8', fontWeight: 500 }}>
+                  = {mathResult}
                 </div>
+                <div className="chrome-omnibox-item-subtitle">Calculation result</div>
+              </div>
+            </div>
+          )}
 
-                <div className="shrink-0 text-slate-500">
-                  <ArrowRight className="w-4 h-4" />
+          {/* History / Bookmark matches */}
+          {suggestions.map((item, idx) => (
+            <div
+              key={idx}
+              className="chrome-omnibox-item"
+              onMouseDown={() => handleSelectSuggestion(item.url)}
+            >
+              {item.type === 'history' ? (
+                <Clock size={14} style={{ color: '#9aa0a6' }} />
+              ) : (
+                <Star size={14} style={{ color: '#8ab4f8' }} fill="#8ab4f8" />
+              )}
+              <div className="chrome-omnibox-item-meta">
+                <div className="chrome-omnibox-item-title">{item.title}</div>
+                <div className="chrome-omnibox-item-subtitle">{item.url}</div>
+              </div>
+            </div>
+          ))}
+
+          {/* Search query suggestion */}
+          {inputValue.trim() && (
+            <div
+              className="chrome-omnibox-item"
+              onMouseDown={() => {
+                onNavigate(inputValue);
+              }}
+            >
+              <Search size={14} style={{ color: '#9aa0a6' }} />
+              <div className="chrome-omnibox-item-meta">
+                <div className="chrome-omnibox-item-title">
+                  {inputValue} — <span style={{ color: '#8ab4f8' }}>{currentEngine.name} Search</span>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          )}
         </div>
       )}
     </div>
