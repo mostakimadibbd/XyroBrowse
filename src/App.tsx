@@ -6,11 +6,17 @@ import {
   DownloadItem,
   BrowserSettings,
   ContextMenuState,
+  TabGroup,
+  Workspace,
+  SidePanelState,
+  SidePanelView,
+  CommandItem,
 } from './types';
 import { SEARCH_ENGINES, resolveOmniboxInput } from './lib/url';
 import { Storage } from './state/persist';
 import { downloadFile } from './lib/downloads';
 import { TabStrip } from './components/TabStrip';
+import { VerticalTabs } from './components/VerticalTabs';
 import { Toolbar } from './components/Toolbar';
 import { BookmarksBar } from './components/BookmarksBar';
 import { Viewport } from './components/Viewport';
@@ -21,6 +27,13 @@ import { ClearDataDialog } from './components/ClearDataDialog';
 import { ContextMenu } from './components/ContextMenu';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { TabSwitcher } from './components/TabSwitcher';
+import { SidePanel } from './components/SidePanel';
+import { CommandPalette } from './components/CommandPalette';
+import { 
+  Plus, Layers, Command, Sidebar, SplitSquareHorizontal, 
+  Home, Settings, History, Bookmark, Download, Shield, 
+  RefreshCw, Search, Sparkles
+} from 'lucide-react';
 
 export default function App() {
   // 1. Persistent State
@@ -69,14 +82,23 @@ export default function App() {
     [settings.defaultSearchEngine]
   );
 
-  // 3. UI Overlays State
-  const [showMenu, setShowMenu] = useState(false);
-  const [showShields, setShowShields] = useState(false);
-  const [showFindBar, setShowFindBar] = useState(false);
-  const [showClearDialog, setShowClearDialog] = useState(false);
-  const [showTabSwitcher, setShowTabSwitcher] = useState(false);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [isMobile, setIsMobile] = useState<boolean>(() => window.innerWidth <= 640);
+  // Advanced features state
+  const [tabGroups, setTabGroups] = useState<TabGroup[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string>('default');
+  const [useVerticalTabs, setUseVerticalTabs] = useState<boolean>(() => 
+    localStorage.getItem('xyro-vertical-tabs') === 'true'
+  );
+  const [sidePanel, setSidePanel] = useState<SidePanelState>({
+    isOpen: false,
+    view: 'bookmarks',
+    width: 320,
+  });
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [splitView, setSplitView] = useState<{ enabled: boolean; tabs: string[] }>({
+    enabled: false,
+    tabs: [],
+  });
 
   // Resolve the system theme to the concrete palette supported by the stylesheet.
   useEffect(() => {
@@ -621,23 +643,130 @@ export default function App() {
           break;
       }
     }
-  }, [
-    createNewTab,
-    closeTab,
-    activeTabId,
-    reload,
-    toggleBookmark,
-    navigate,
-    handleZoom,
-    resetZoom,
-    goBack,
-    goForward,
-    activeTab.isLoading,
-    stopLoading,
-    findInPage,
-    printPage,
-    toggleFullscreen,
-  ]);
+  // Advanced features
+  const toggleVerticalTabs = useCallback(() => {
+    setUseVerticalTabs(prev => {
+      const newValue = !prev;
+      localStorage.setItem('xyro-vertical-tabs', String(newValue));
+      return newValue;
+    });
+  }, []);
+
+  const createTabGroup = useCallback(() => {
+    const groupId = 'group-' + Math.random().toString(36).slice(2, 9);
+    const newGroup: TabGroup = {
+      id: groupId,
+      name: 'New Group',
+      color: ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'][Math.floor(Math.random() * 5)],
+      collapsed: false,
+      tabIds: [],
+    };
+    setTabGroups(prev => [...prev, newGroup]);
+  }, []);
+
+  const toggleTabGroup = useCallback((groupId: string) => {
+    setTabGroups(prev => 
+      prev.map(g => g.id === groupId ? { ...g, collapsed: !g.collapsed } : g)
+    );
+  }, []);
+
+  const toggleSidePanel = useCallback((view?: SidePanelView) => {
+    setSidePanel(prev => ({
+      ...prev,
+      isOpen: view ? (prev.view === view ? !prev.isOpen : true) : !prev.isOpen,
+      view: view || prev.view,
+    }));
+  }, []);
+
+  const generateCommands = useCallback((): CommandItem[] => [
+    {
+      id: 'new-tab',
+      title: 'New Tab',
+      description: 'Open a new tab',
+      shortcut: '⌘+T',
+      category: 'tabs',
+      action: () => createNewTab(),
+    },
+    {
+      id: 'new-incognito',
+      title: 'New Incognito Window',
+      description: 'Open a private browsing window',
+      shortcut: '⌘+Shift+N',
+      category: 'tabs',
+      action: () => createNewTab('chrome://newtab', true),
+    },
+    {
+      id: 'close-tab',
+      title: 'Close Current Tab',
+      shortcut: '⌘+W',
+      category: 'tabs',
+      action: () => closeTab(activeTabId),
+    },
+    {
+      id: 'go-home',
+      title: 'Go Home',
+      category: 'navigation',
+      action: () => navigate(settings.homePage),
+    },
+    {
+      id: 'bookmarks',
+      title: 'Show Bookmarks',
+      shortcut: '⌘+Shift+O',
+      category: 'bookmarks',
+      action: () => toggleSidePanel('bookmarks'),
+    },
+    {
+      id: 'history',
+      title: 'Show History',
+      shortcut: '⌘+Y',
+      category: 'navigation',
+      action: () => toggleSidePanel('history'),
+    },
+    {
+      id: 'ai-assistant',
+      title: 'AI Assistant',
+      category: 'ai',
+      action: () => toggleSidePanel('ai'),
+    },
+    {
+      id: 'settings',
+      title: 'Settings',
+      category: 'settings',
+      action: () => navigate('chrome://settings'),
+    },
+    {
+      id: 'toggle-vertical-tabs',
+      title: useVerticalTabs ? 'Switch to Horizontal Tabs' : 'Switch to Vertical Tabs',
+      category: 'tabs',
+      action: toggleVerticalTabs,
+    },
+    {
+      id: 'reload',
+      title: 'Reload Page',
+      shortcut: '⌘+R',
+      category: 'navigation',
+      action: reload,
+    },
+    {
+      id: 'find',
+      title: 'Find in Page',
+      shortcut: '⌘+F',
+      category: 'tools',
+      action: () => setShowFindBar(true),
+    },
+  ], [createNewTab, closeTab, activeTabId, navigate, settings.homePage, toggleSidePanel, useVerticalTabs, toggleVerticalTabs, reload]);
+
+  // Keyboard shortcuts for command palette
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowCommandPalette(true);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = window.xyro?.on(
@@ -670,193 +799,292 @@ export default function App() {
     return () => unsubscribe?.();
   }, [createNewTab, handleKeyShortcut, navigate, reload]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const ctrl = isMac ? e.metaKey : e.ctrlKey;
-      if (e.key === 'F11') {
-        e.preventDefault();
-        toggleFullscreen();
-      } else if (e.key === 'F5' && !ctrl) {
-        e.preventDefault();
-        reload();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        if (activeTab.isLoading) stopLoading();
-        else {
-          findInPage('');
-          setShowFindBar(false);
-        }
-      } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-        e.preventDefault();
-        handleKeyShortcut(e.key, false, e.shiftKey, true);
-      } else if (ctrl && e.key.toLowerCase() === 'l') {
-        e.preventDefault();
-        const omnibox = document.querySelector<HTMLInputElement>('.chrome-omnibox-input');
-        omnibox?.focus();
-        omnibox?.select();
-      } else if (ctrl) {
-        const handledKeys = ['t', 'w', 'r', 'f', 'p', 'd', 'h', 'j', 'o', '=', '+', '-', '0'];
-        if (handledKeys.includes(e.key.toLowerCase())) {
-          e.preventDefault();
-          handleKeyShortcut(e.key, ctrl, e.shiftKey);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
-    activeTab.isLoading,
-    findInPage,
-    handleKeyShortcut,
+    createNewTab,
+    closeTab,
+    activeTabId,
     reload,
+    toggleBookmark,
+    navigate,
+    handleZoom,
+    resetZoom,
+    goBack,
+    goForward,
+    activeTab.isLoading,
     stopLoading,
+    findInPage,
+    printPage,
     toggleFullscreen,
   ]);
 
+  const commands = useMemo(() => generateCommands(), [generateCommands]);
+
   return (
     <div className="chrome-browser-shell">
-      {/* 1. Desktop Tab Strip */}
+      {/* Futuristic Top Bar with Controls */}
       {!isMobile && (
-        <TabStrip
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onSelectTab={setActiveTabId}
-          onCloseTab={closeTab}
-          onNewTab={() => createNewTab()}
-          onTogglePin={togglePin}
-        />
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '4px 12px',
+          background: 'linear-gradient(90deg, rgba(15, 17, 25, 0.95) 0%, rgba(25, 28, 40, 0.9) 100%)',
+          borderBottom: '1px solid var(--chrome-glass-border)',
+          height: '32px',
+          backdropFilter: 'blur(20px)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '2px 8px',
+              background: 'var(--chrome-gradient-accent)',
+              borderRadius: '6px',
+              color: 'white',
+              fontSize: '11px',
+              fontWeight: '600',
+            }}>
+              <Sparkles size={12} />
+              <span>XYRO</span>
+            </div>
+            <button
+              className="chrome-btn-icon"
+              style={{ width: '24px', height: '24px' }}
+              onClick={toggleVerticalTabs}
+              title={useVerticalTabs ? 'Horizontal Tabs' : 'Vertical Tabs'}
+            >
+              {useVerticalTabs ? <Sidebar size={14} /> : <Layers size={14} />}
+            </button>
+            <button
+              className="chrome-btn-icon"
+              style={{ width: '24px', height: '24px' }}
+              onClick={() => setShowCommandPalette(true)}
+              title="Command Palette (⌘+K)"
+            >
+              <Command size={14} />
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              className="chrome-btn-icon"
+              style={{ width: '24px', height: '24px' }}
+              onClick={() => toggleSidePanel('bookmarks')}
+              title="Bookmarks"
+            >
+              <Bookmark size={14} />
+            </button>
+            <button
+              className="chrome-btn-icon"
+              style={{ width: '24px', height: '24px' }}
+              onClick={() => toggleSidePanel('history')}
+              title="History"
+            >
+              <History size={14} />
+            </button>
+            <button
+              className="chrome-btn-icon"
+              style={{ width: '24px', height: '24px' }}
+              onClick={() => toggleSidePanel('ai')}
+              title="AI Assistant"
+            >
+              <Sparkles size={14} />
+            </button>
+            <button
+              className="chrome-btn-icon"
+              style={{ width: '24px', height: '24px' }}
+              onClick={() => navigate('chrome://settings')}
+              title="Settings"
+            >
+              <Settings size={14} />
+            </button>
+          </div>
+        </div>
       )}
 
-      {/* 2. Navigation Toolbar */}
-      {(!isMobile || settings.mobileToolbarPosition === 'top') && (
-        <Toolbar
-          url={activeTab.url}
-          canGoBack={activeTab.historyIndex > 0}
-          canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
-          isLoading={activeTab.isLoading}
-          blockedCount={activeTab.blockedCount}
-          isBookmarked={isCurrentBookmarked}
-          isReaderMode={activeTab.isReaderMode}
-          canReaderMode={activeTab.url.startsWith('http')}
-          currentEngine={currentEngine}
-          history={history}
-          bookmarks={bookmarks}
-          onBack={goBack}
-          onForward={goForward}
-          onReload={reload}
-          onStop={stopLoading}
-          onHome={() => navigate(settings.homePage)}
-          onNavigate={navigate}
-          onToggleBookmark={toggleBookmark}
-          onToggleReaderMode={toggleReaderMode}
-          onChangeEngine={(eng) => setSettings({ ...settings, defaultSearchEngine: eng.id })}
-          onToggleShields={() => setShowShields((visible) => !visible)}
-          onOpenDownloads={() => navigate('chrome://downloads')}
-          onToggleMenu={() => setShowMenu((visible) => !visible)}
-        />
-      )}
+      {/* Layout Container */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Vertical Tabs Sidebar */}
+        {!isMobile && useVerticalTabs && (
+          <VerticalTabs
+            tabs={tabs}
+            tabGroups={tabGroups}
+            activeTabId={activeTabId}
+            onSelectTab={setActiveTabId}
+            onCloseTab={closeTab}
+            onNewTab={() => createNewTab()}
+            onTogglePin={togglePin}
+            onCreateGroup={createTabGroup}
+            onToggleGroup={toggleTabGroup}
+            onAddToGroup={() => {}}
+          />
+        )}
 
-      {/* 3. Bookmarks Bar (desktop only) */}
-      {!isMobile && settings.showBookmarksBar && (
-        <BookmarksBar
-          bookmarks={bookmarks}
-          onNavigate={navigate}
-          onOpenManager={() => navigate('chrome://bookmarks')}
-        />
-      )}
+        {/* Main Content Area */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* 1. Desktop Tab Strip */}
+          {!isMobile && !useVerticalTabs && (
+            <TabStrip
+              tabs={tabs}
+              activeTabId={activeTabId}
+              onSelectTab={setActiveTabId}
+              onCloseTab={closeTab}
+              onNewTab={() => createNewTab()}
+              onTogglePin={togglePin}
+            />
+          )}
 
-      {/* 4. Main Viewport */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <Viewport
-          tabs={tabs}
-          activeTabId={activeTabId}
-          tab={activeTab}
-          currentEngine={currentEngine}
+          {/* 2. Navigation Toolbar */}
+          {(!isMobile || settings.mobileToolbarPosition === 'top') && (
+            <Toolbar
+              url={activeTab.url}
+              canGoBack={activeTab.historyIndex > 0}
+              canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
+              isLoading={activeTab.isLoading}
+              blockedCount={activeTab.blockedCount}
+              isBookmarked={isCurrentBookmarked}
+              isReaderMode={activeTab.isReaderMode}
+              canReaderMode={activeTab.url.startsWith('http')}
+              currentEngine={currentEngine}
+              history={history}
+              bookmarks={bookmarks}
+              onBack={goBack}
+              onForward={goForward}
+              onReload={reload}
+              onStop={stopLoading}
+              onHome={() => navigate(settings.homePage)}
+              onNavigate={navigate}
+              onToggleBookmark={toggleBookmark}
+              onToggleReaderMode={toggleReaderMode}
+              onChangeEngine={(eng) => setSettings({ ...settings, defaultSearchEngine: eng.id })}
+              onToggleShields={() => setShowShields((visible) => !visible)}
+              onOpenDownloads={() => navigate('chrome://downloads')}
+              onToggleMenu={() => setShowMenu((visible) => !visible)}
+            />
+          )}
+
+          {/* 3. Bookmarks Bar (desktop only) */}
+          {!isMobile && settings.showBookmarksBar && (
+            <BookmarksBar
+              bookmarks={bookmarks}
+              onNavigate={navigate}
+              onOpenManager={() => navigate('chrome://bookmarks')}
+            />
+          )}
+
+          {/* 4. Main Viewport */}
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+            <Viewport
+              tabs={tabs}
+              activeTabId={activeTabId}
+              tab={activeTab}
+              currentEngine={currentEngine}
+              bookmarks={bookmarks}
+              history={history}
+              downloads={downloads}
+              settings={settings}
+              onNavigate={navigate}
+              onNavigateInTab={navigateInTab}
+              onOpenNewTab={(url) => createNewTab(url)}
+              onUpdateTabTitle={(tabId, title) =>
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === tabId ? { ...t, title } : t))
+                )
+              }
+              onUpdateTabFavicon={(tabId, favicon) =>
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === tabId ? { ...t, favicon } : t))
+                )
+              }
+              onUpdateTabBlockedCount={(tabId, blockedCount) =>
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === tabId ? { ...t, blockedCount } : t))
+                )
+              }
+              onUpdateTabLoading={(tabId, isLoading) =>
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === tabId ? { ...t, isLoading } : t))
+                )
+              }
+              onContextMenu={setContextMenu}
+              onKeyShortcut={handleKeyShortcut}
+              onAddBookmark={(title, url) => {
+                const newBm: BookmarkNode = {
+                  id: 'bm-' + Math.random().toString(36).slice(2, 9),
+                  title,
+                  url,
+                  dateAdded: Date.now(),
+                };
+                setBookmarks((prev) => [...prev, newBm]);
+              }}
+              onDeleteBookmark={(id) => setBookmarks((prev) => prev.filter((b) => b.id !== id))}
+              onImportBookmarks={(imported) => setBookmarks((prev) => [...prev, ...imported])}
+              onDeleteHistoryItem={(id) => setHistory((prev) => prev.filter((h) => h.id !== id))}
+              onClearHistory={() => setHistory([])}
+              onClearDownloads={() => setDownloads([])}
+              onUpdateSettings={updateSettings}
+              onOpenClearDialog={() => setShowClearDialog(true)}
+              onExitReaderMode={() =>
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === activeTabId ? { ...t, isReaderMode: false } : t))
+                )
+              }
+            />
+
+            {/* Floating Find in Page Bar */}
+            {showFindBar && (
+              <FindBar
+                onFind={findInPage}
+                onClose={() => {
+                  findInPage('');
+                  setShowFindBar(false);
+                }}
+              />
+            )}
+          </div>
+
+          {/* 5. Mobile Bottom Bar */}
+          {isMobile && settings.mobileToolbarPosition === 'bottom' && (
+            <MobileBottomBar
+              canGoBack={activeTab.historyIndex > 0}
+              canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
+              tabCount={tabs.length}
+              url={activeTab.url}
+              isLoading={activeTab.isLoading}
+              onBack={goBack}
+              onForward={goForward}
+              onHome={() => navigate(settings.homePage)}
+              onNewTab={() => createNewTab()}
+              onOpenTabSwitcher={() => setShowTabSwitcher(true)}
+              onToggleMenu={() => setShowMenu((visible) => !visible)}
+              onNavigate={navigate}
+              onReload={reload}
+              onStop={stopLoading}
+            />
+          )}
+        </div>
+
+        {/* Side Panel */}
+        <SidePanel
+          isOpen={sidePanel.isOpen}
+          view={sidePanel.view}
+          width={sidePanel.width}
           bookmarks={bookmarks}
           history={history}
           downloads={downloads}
-          settings={settings}
+          onClose={() => setSidePanel(prev => ({ ...prev, isOpen: false }))}
           onNavigate={navigate}
-          onNavigateInTab={navigateInTab}
-          onOpenNewTab={(url) => createNewTab(url)}
-          onUpdateTabTitle={(tabId, title) =>
-            setTabs((prev) =>
-              prev.map((t) => (t.id === tabId ? { ...t, title } : t))
-            )
-          }
-          onUpdateTabFavicon={(tabId, favicon) =>
-            setTabs((prev) =>
-              prev.map((t) => (t.id === tabId ? { ...t, favicon } : t))
-            )
-          }
-          onUpdateTabBlockedCount={(tabId, blockedCount) =>
-            setTabs((prev) =>
-              prev.map((t) => (t.id === tabId ? { ...t, blockedCount } : t))
-            )
-          }
-          onUpdateTabLoading={(tabId, isLoading) =>
-            setTabs((prev) =>
-              prev.map((t) => (t.id === tabId ? { ...t, isLoading } : t))
-            )
-          }
-          onContextMenu={setContextMenu}
-          onKeyShortcut={handleKeyShortcut}
-          onAddBookmark={(title, url) => {
-            const newBm: BookmarkNode = {
-              id: 'bm-' + Math.random().toString(36).slice(2, 9),
-              title,
-              url,
-              dateAdded: Date.now(),
-            };
-            setBookmarks((prev) => [...prev, newBm]);
-          }}
-          onDeleteBookmark={(id) => setBookmarks((prev) => prev.filter((b) => b.id !== id))}
-          onImportBookmarks={(imported) => setBookmarks((prev) => [...prev, ...imported])}
-          onDeleteHistoryItem={(id) => setHistory((prev) => prev.filter((h) => h.id !== id))}
-          onClearHistory={() => setHistory([])}
-          onClearDownloads={() => setDownloads([])}
-          onUpdateSettings={updateSettings}
-          onOpenClearDialog={() => setShowClearDialog(true)}
-          onExitReaderMode={() =>
-            setTabs((prev) =>
-              prev.map((t) => (t.id === activeTabId ? { ...t, isReaderMode: false } : t))
-            )
-          }
+          onViewChange={(view) => setSidePanel(prev => ({ ...prev, view }))}
+          onWidthChange={(width) => setSidePanel(prev => ({ ...prev, width }))}
         />
-
-        {/* Floating Find in Page Bar */}
-        {showFindBar && (
-          <FindBar
-            onFind={findInPage}
-            onClose={() => {
-              findInPage('');
-              setShowFindBar(false);
-            }}
-          />
-        )}
       </div>
 
-      {/* 5. Mobile Bottom Bar */}
-      {isMobile && settings.mobileToolbarPosition === 'bottom' && (
-        <MobileBottomBar
-          canGoBack={activeTab.historyIndex > 0}
-          canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
-          tabCount={tabs.length}
-          url={activeTab.url}
-          isLoading={activeTab.isLoading}
-          onBack={goBack}
-          onForward={goForward}
-          onHome={() => navigate(settings.homePage)}
-          onNewTab={() => createNewTab()}
-          onOpenTabSwitcher={() => setShowTabSwitcher(true)}
-          onToggleMenu={() => setShowMenu((visible) => !visible)}
-          onNavigate={navigate}
-          onReload={reload}
-          onStop={stopLoading}
-        />
-      )}
+      {/* Command Palette */}
+      <CommandPalette
+        isOpen={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
+        commands={commands}
+      />
 
       {/* 6. Overlays */}
       {showMenu && (

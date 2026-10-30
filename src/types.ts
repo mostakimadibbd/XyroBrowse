@@ -8,6 +8,14 @@ export interface ReaderArticle {
   siteName: string | null;
 }
 
+export interface TabGroup {
+  id: string;
+  name: string;
+  color: string;
+  collapsed: boolean;
+  tabIds: string[];
+}
+
 export interface Tab {
   id: string;
   url: string;
@@ -28,6 +36,38 @@ export interface Tab {
   viewSource: boolean;
   blockedCount: number;
   lastActive: number;
+  groupId?: string;
+  muted?: boolean;
+  sleeping?: boolean;
+  isSplitView?: boolean;
+  splitWith?: string[];
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  icon: string;
+  tabs: Tab[];
+  activeTabId: string;
+  createdAt: number;
+}
+
+export type SidePanelView = 'bookmarks' | 'history' | 'downloads' | 'ai' | 'reading' | 'extensions' | 'passwords' | 'notes';
+
+export interface SidePanelState {
+  isOpen: boolean;
+  view: SidePanelView;
+  width: number;
+}
+
+export interface CommandItem {
+  id: string;
+  title: string;
+  description?: string;
+  shortcut?: string;
+  category: 'navigation' | 'tabs' | 'bookmarks' | 'settings' | 'tools' | 'ai';
+  action: () => void;
+  icon?: string;
 }
 
 export interface BookmarkNode {
