@@ -395,7 +395,7 @@ app.get('/download', async (c) => {
 const handleRequest = (request: Request): Promise<Response> => {
   const requestUrl = new URL(request.url);
   const route = requestUrl.searchParams.get('__route');
-  if (!route) return app.fetch(request);
+  if (!route) return new Response('Not Found', { status: 404 });
 
   if (route === 'proxy') {
     const origin = requestUrl.searchParams.get('__origin');
@@ -412,10 +412,6 @@ const handleRequest = (request: Request): Promise<Response> => {
   return app.fetch(new Request(requestUrl, request));
 };
 
-export const GET = handleRequest;
-export const HEAD = handleRequest;
-export const POST = handleRequest;
-export const PUT = handleRequest;
-export const PATCH = handleRequest;
-export const DELETE = handleRequest;
-export const OPTIONS = handleRequest;
+app.all('/router', (c) => handleRequest(c.req.raw));
+
+export default app;
