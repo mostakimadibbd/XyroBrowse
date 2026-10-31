@@ -643,6 +643,24 @@ export default function App() {
           break;
       }
     }
+  }, [
+    toggleFullscreen,
+    reload,
+    activeTab.isLoading,
+    stopLoading,
+    findInPage,
+    goBack,
+    goForward,
+    createNewTab,
+    closeTab,
+    activeTabId,
+    printPage,
+    toggleBookmark,
+    navigate,
+    handleZoom,
+    resetZoom,
+  ]);
+
   // Advanced features
   const toggleVerticalTabs = useCallback(() => {
     setUseVerticalTabs(prev => {
@@ -798,24 +816,6 @@ export default function App() {
     );
     return () => unsubscribe?.();
   }, [createNewTab, handleKeyShortcut, navigate, reload]);
-
-  }, [
-    createNewTab,
-    closeTab,
-    activeTabId,
-    reload,
-    toggleBookmark,
-    navigate,
-    handleZoom,
-    resetZoom,
-    goBack,
-    goForward,
-    activeTab.isLoading,
-    stopLoading,
-    findInPage,
-    printPage,
-    toggleFullscreen,
-  ]);
 
   const commands = useMemo(() => generateCommands(), [generateCommands]);
 
