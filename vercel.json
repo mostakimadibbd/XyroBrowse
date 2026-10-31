@@ -39,6 +39,14 @@
   ],
   "rewrites": [
     {
+      "source": "/api/p/:origin/:proxyPath*",
+      "destination": "/api/router?__route=proxy&__origin=:origin&__proxyPath=:proxyPath*"
+    },
+    {
+      "source": "/api/:route*",
+      "destination": "/api/router?__route=:route*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

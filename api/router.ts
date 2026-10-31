@@ -400,7 +400,7 @@ const handleRequest = (request: Request): Promise<Response> => {
   if (route === 'proxy') {
     const origin = requestUrl.searchParams.get('__origin');
     const proxyPath = requestUrl.searchParams.get('__proxyPath') || '/';
-    if (!origin) return Promise.resolve(new Response('Missing proxy origin', { status: 400 }));
+    if (!origin) return Promise.resolve(Response.json({ error: 'Missing proxy origin' }, { status: 400 }));
     requestUrl.pathname = `/api/p/${encodeURIComponent(origin)}${proxyPath.startsWith('/') ? proxyPath : `/${proxyPath}`}`;
     requestUrl.searchParams.delete('__origin');
     requestUrl.searchParams.delete('__proxyPath');

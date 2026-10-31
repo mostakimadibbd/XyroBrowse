@@ -65,8 +65,8 @@ export function resolveOmniboxInput(
     if (text.startsWith(`${eng.bang} `)) {
       const q = text.slice(eng.bang.length + 1).trim();
       return {
-        url: `chrome://search?q=${encodeURIComponent(q)}&engine=${encodeURIComponent(eng.name)}`,
-        isSearch: true,
+        url: `${eng.searchUrl}${encodeURIComponent(q)}`,
+        isSearch: false,
         query: q,
       };
     }
@@ -94,10 +94,10 @@ export function resolveOmniboxInput(
     return { url: `https://${text}`, isSearch: false };
   }
 
-  // Otherwise, route through native Chrome Search with currentEngine
+  // Send searches directly to the selected provider so its results match the engine choice.
   return {
-    url: `chrome://search?q=${encodeURIComponent(text)}&engine=${encodeURIComponent(currentEngine.name)}`,
-    isSearch: true,
+    url: `${currentEngine.searchUrl}${encodeURIComponent(text)}`,
+    isSearch: false,
     query: text,
   };
 }

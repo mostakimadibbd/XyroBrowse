@@ -27,10 +27,10 @@ test('URL - isUrlOrDomain correctly identifies web addresses', () => {
 test('Omnibox - resolveOmniboxInput handles bangs, urls, and search queries', () => {
   const googleEngine = SEARCH_ENGINES[0];
 
-  // Bang !b routes to Brave search
+  // Bang !b searches directly with Brave rather than showing another provider's results.
   const braveRes = resolveOmniboxInput('!b typescript generics', googleEngine);
-  assert.equal(braveRes.isSearch, true);
-  assert.equal(braveRes.url.includes('engine=Brave'), true);
+  assert.equal(braveRes.isSearch, false);
+  assert.equal(braveRes.url, 'https://search.brave.com/search?q=typescript%20generics');
 
   // Bang !yt routes to YouTube
   const ytRes = resolveOmniboxInput('!yt lo-fi beats', googleEngine);
@@ -44,8 +44,14 @@ test('Omnibox - resolveOmniboxInput handles bangs, urls, and search queries', ()
 
   // Search query
   const searchRes = resolveOmniboxInput('google chrome tips', googleEngine);
-  assert.equal(searchRes.isSearch, true);
-  assert.equal(searchRes.url.includes('chrome%20tips'), true);
+  assert.equal(searchRes.isSearch, false);
+  assert.equal(searchRes.url, 'https://www.google.com/search?q=google%20chrome%20tips');
+
+  const bingSearch = resolveOmniboxInput(
+    'browser features',
+    SEARCH_ENGINES.find((engine) => engine.id === 'bing')!
+  );
+  assert.equal(bingSearch.url, 'https://www.bing.com/search?q=browser%20features');
 });
 
 test('Omnibox - evaluateMath computes arithmetic expressions inline', () => {
