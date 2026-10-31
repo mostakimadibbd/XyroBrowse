@@ -49,6 +49,7 @@ export default function App() {
   const [history, setHistory] = useState<HistoryItem[]>(() => Storage.getHistory());
   const [downloads, setDownloads] = useState<DownloadItem[]>(() => Storage.getDownloads());
   const [settings, setSettings] = useState<BrowserSettings>(() => Storage.getSettings());
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
 
   // 2. Active Tab & Engine
   const activeTab = useMemo(
