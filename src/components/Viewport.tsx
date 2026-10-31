@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Tab, SearchEngine, BookmarkNode, HistoryItem, DownloadItem, BrowserSettings, ContextMenuState } from '../types';
 import { NewTabPage } from '../pages/NewTabPage';
 import { SearchResults } from '../pages/SearchResults';
@@ -42,6 +42,7 @@ interface ViewportProps {
   downloads: DownloadItem[];
   settings: BrowserSettings;
   onNavigate: (url: string) => void;
+  onRetry: () => void;
   onNavigateInTab: (tabId: string, url: string, replace?: boolean, preserveDocument?: boolean) => void;
   onOpenNewTab: (url: string) => void;
   onUpdateTabTitle: (tabId: string, title: string) => void;
@@ -71,6 +72,7 @@ export const Viewport: React.FC<ViewportProps> = ({
   downloads,
   settings,
   onNavigate,
+  onRetry,
   onNavigateInTab,
   onOpenNewTab,
   onUpdateTabTitle,
@@ -90,8 +92,24 @@ export const Viewport: React.FC<ViewportProps> = ({
   onExitReaderMode,
 }) => {
   const isElectron = typeof window !== 'undefined' && (window as any).xyro?.platform === 'electron';
-  const [proxyErrors, setProxyErrors] = useState<Record<string, boolean>>({});
-  const [directLoad, setDirectLoad] = useState<Record<string, boolean>>({});
+  const [proxyErrors, setProxyErrors] = useState<Record<string, 'load' | 'embedded' | 'timeout'>>({});
+  const [directLoad, setDirectLoad] = useState<Record<string, string>>({});
+  const updateTabLoadingRef = useRef(onUpdateTabLoading);
+
+  useEffect(() => {
+    updateTabLoadingRef.current = onUpdateTabLoading;
+  }, [onUpdateTabLoading]);
+
+  useEffect(() => {
+    if (isElectron || !tab.isLoading || !/^https?:\/\//i.test(tab.url)) return;
+
+    const timeout = window.setTimeout(() => {
+      setProxyErrors((prev) => ({ ...prev, [tab.id]: 'timeout' }));
+      updateTabLoadingRef.current(tab.id, false);
+    }, 30000);
+
+    return () => window.clearTimeout(timeout);
+  }, [isElectron, tab.id, tab.isLoading, tab.url, tab.reloadKey]);
 
   // Handle postMessage events with strict event.source check
   useEffect(() => {
@@ -105,15 +123,20 @@ export const Viewport: React.FC<ViewportProps> = ({
       const sourceTabId = sourceFrame?.dataset.tabId;
       if (!sourceFrame || !sourceTabId) return;
 
-      if (data.type === 'xyro-navigate' && data.url) {
+      const sourceTab = tabs.find((candidate) => candidate.id === sourceTabId);
+      if (data.type === 'xyro-app-embedded') {
+        setProxyErrors((prev) => ({ ...prev, [sourceTabId]: 'embedded' }));
+        onUpdateTabLoading(sourceTabId, false);
+        onUpdateTabTitle(sourceTabId, 'Browser page unavailable');
+      } else if (data.type === 'xyro-navigate' && data.url) {
         onNavigateInTab(sourceTabId, data.url, data.replace === true);
       } else if (data.type === 'xyro-urlchange' && data.url) {
         onNavigateInTab(sourceTabId, data.url, data.replace === true, true);
       } else if (data.type === 'xyro-loaded') {
         if (data.url) {
           const normalizedDataUrl = data.url.replace(/\/$/, '');
-          const normalizedTabUrl = tab.url.replace(/\/$/, '');
-          if (normalizedDataUrl !== normalizedTabUrl) {
+          const normalizedTabUrl = sourceTab?.url.replace(/\/$/, '');
+          if (normalizedTabUrl && normalizedDataUrl !== normalizedTabUrl) {
             onNavigateInTab(sourceTabId, data.url, true, true);
           }
         }
@@ -143,6 +166,7 @@ export const Viewport: React.FC<ViewportProps> = ({
     return () => window.removeEventListener('message', handleMessage);
   }, [
     activeTabId,
+    tabs,
     onNavigateInTab,
     onOpenNewTab,
     onUpdateTabTitle,
@@ -270,6 +294,7 @@ export const Viewport: React.FC<ViewportProps> = ({
       {webTabs.map((t) => {
         const isActive = t.id === activeTabId && !isInternal && !tab.isReaderMode;
         const zoomScale = t.zoom / 100;
+        const error = proxyErrors[t.id];
 
         if (isElectron) {
           // Render Chromium <webview> in desktop mode
@@ -293,21 +318,32 @@ export const Viewport: React.FC<ViewportProps> = ({
 
 // Render Sandboxed IFrame in Lite Mode (key={t.id} prevents reloading on switch)
         return (
-          <>
+          <React.Fragment key={t.id}>
             <iframe
               key={`${t.id}:${t.reloadKey || 0}`}
               data-tab-id={t.id}
-              src={directLoad[t.id] ? t.url : toProxyUrl(t.contentUrl || t.url, t.proxySessionId, settings.shieldsEnabled)}
+              src={directLoad[t.id] === (t.contentUrl || t.url) ? t.url : toProxyUrl(t.contentUrl || t.url, t.proxySessionId, settings.shieldsEnabled)}
               title={t.title}
               className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
               sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
               onLoad={() => {
-                setProxyErrors((prev) => ({ ...prev, [t.id]: false }));
-                setDirectLoad((prev) => ({ ...prev, [t.id]: false }));
+                setProxyErrors((prev) => {
+                  if (!prev[t.id]) return prev;
+                  const next = { ...prev };
+                  delete next[t.id];
+                  return next;
+                });
                 onUpdateTabLoading(t.id, false);
+                if (t.title === 'Loading...' && directLoad[t.id] !== (t.contentUrl || t.url)) {
+                  try {
+                    onUpdateTabTitle(t.id, new URL(t.url).hostname);
+                  } catch {
+                    onUpdateTabTitle(t.id, 'Web page');
+                  }
+                }
               }}
               onError={() => {
-                setProxyErrors((prev) => ({ ...prev, [t.id]: true }));
+                setProxyErrors((prev) => ({ ...prev, [t.id]: 'load' }));
                 onUpdateTabLoading(t.id, false);
               }}
               style={{
@@ -318,7 +354,7 @@ width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
               height: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
               }}
             />
-            {proxyErrors[t.id] && isActive && (
+            {error && isActive && (
               <div
                 style={{
                   position: 'absolute',
@@ -334,31 +370,75 @@ width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
                   color: 'var(--chrome-text-primary)',
                 }}
               >
-                <h3 style={{ fontSize: 16, fontWeight: 500 }}>Unable to load page via proxy</h3>
+                <h3 style={{ fontSize: 16, fontWeight: 500 }}>
+                  {error === 'embedded'
+                    ? 'This browser page cannot be displayed inside XyroBrowse'
+                    : error === 'timeout'
+                    ? 'This page is taking too long to load'
+                    : 'Unable to load this page'}
+                </h3>
                 <p style={{ fontSize: 13, color: 'var(--chrome-text-secondary)', textAlign: 'center', maxWidth: 400 }}>
-                  The page could not be loaded through the proxy. This may be due to CORS restrictions or proxy unavailability.
+                  {error === 'embedded'
+                    ? 'The hosted proxy returned the XyroBrowse app instead of the requested website. Check the Vercel API deployment, then retry.'
+                    : error === 'timeout'
+                    ? 'The page did not respond within 30 seconds. Check your connection or try again.'
+                    : 'The page could not be loaded through the proxy. It may block embedded browsing or the proxy may be unavailable.'}
                 </p>
-                <button
-                  onClick={() => {
-                    setDirectLoad((prev) => ({ ...prev, [t.id]: true }));
-                    onNavigate(t.contentUrl || t.url);
-                  }}
-                  style={{
-                    backgroundColor: 'var(--chrome-accent-blue)',
-                    color: '#202124',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '8px 16px',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Open Directly
-                </button>
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
+                  {error !== 'embedded' && (
+                    <button
+                      onClick={() => {
+                        setDirectLoad((prev) => ({ ...prev, [t.id]: t.contentUrl || t.url }));
+                        onNavigate(t.contentUrl || t.url);
+                      }}
+                      style={{
+                        backgroundColor: 'var(--chrome-button-hover)',
+                        color: 'var(--chrome-text-primary)',
+                        border: '1px solid var(--chrome-border-subtle)',
+                        borderRadius: 6,
+                        padding: '8px 16px',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Open Directly
+                    </button>
+                  )}
+                  <button
+                    onClick={onRetry}
+                    style={{
+                      backgroundColor: 'var(--chrome-accent-blue)',
+                      color: '#202124',
+                      border: 'none',
+                      borderRadius: 6,
+                      padding: '8px 16px',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Retry
+                  </button>
+                  {error === 'embedded' && (
+                    <button
+                      onClick={() => onOpenNewTab('chrome://newtab')}
+                      style={{
+                        backgroundColor: 'var(--chrome-button-hover)',
+                        color: 'var(--chrome-text-primary)',
+                        border: '1px solid var(--chrome-border-subtle)',
+                        borderRadius: 6,
+                        padding: '8px 16px',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Open new tab
+                    </button>
+                  )}
+                </div>
               </div>
             )}
-          </>
+          </React.Fragment>
         );
       })}
       {internalContent && (

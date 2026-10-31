@@ -57,6 +57,12 @@ export default function App() {
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showTabSwitcher, setShowTabSwitcher] = useState(false);
 
+  useEffect(() => {
+    if (window.self !== window.top) {
+      window.parent.postMessage({ type: 'xyro-app-embedded' }, '*');
+    }
+  }, []);
+
   // 2. Active Tab & Engine
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) || tabs[0] || {
@@ -829,7 +835,7 @@ export default function App() {
   return (
     <div className="chrome-browser-shell">
       {/* Layout Container */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
         {/* Vertical Tabs Sidebar */}
         {!isMobile && useVerticalTabs && (
           <VerticalTabs
@@ -847,7 +853,7 @@ export default function App() {
         )}
 
         {/* Main Content Area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* 1. Desktop Tab Strip */}
           {!isMobile && !useVerticalTabs && (
             <TabStrip
@@ -899,7 +905,7 @@ export default function App() {
           )}
 
           {/* 4. Main Viewport */}
-          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
             <Viewport
               tabs={tabs}
               activeTabId={activeTabId}
@@ -910,6 +916,7 @@ export default function App() {
               downloads={downloads}
               settings={settings}
               onNavigate={navigate}
+              onRetry={reload}
               onNavigateInTab={navigateInTab}
               onOpenNewTab={(url) => createNewTab(url)}
               onUpdateTabTitle={(tabId, title) =>
