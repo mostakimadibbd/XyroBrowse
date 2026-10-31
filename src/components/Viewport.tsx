@@ -297,12 +297,13 @@ export const Viewport: React.FC<ViewportProps> = ({
             <iframe
               key={`${t.id}:${t.reloadKey || 0}`}
               data-tab-id={t.id}
-              src={toProxyUrl(t.contentUrl || t.url, t.proxySessionId, settings.shieldsEnabled)}
+              src={directLoad[t.id] ? t.url : toProxyUrl(t.contentUrl || t.url, t.proxySessionId, settings.shieldsEnabled)}
               title={t.title}
               className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
               sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
               onLoad={() => {
                 setProxyErrors((prev) => ({ ...prev, [t.id]: false }));
+                setDirectLoad((prev) => ({ ...prev, [t.id]: false }));
                 onUpdateTabLoading(t.id, false);
               }}
               onError={() => {
@@ -338,7 +339,10 @@ width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
                   The page could not be loaded through the proxy. This may be due to CORS restrictions or proxy unavailability.
                 </p>
                 <button
-                  onClick={() => onNavigate(t.contentUrl || t.url)}
+                  onClick={() => {
+                    setDirectLoad((prev) => ({ ...prev, [t.id]: true }));
+                    onNavigate(t.contentUrl || t.url);
+                  }}
                   style={{
                     backgroundColor: 'var(--chrome-accent-blue)',
                     color: '#202124',
