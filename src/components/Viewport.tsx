@@ -91,6 +91,7 @@ export const Viewport: React.FC<ViewportProps> = ({
 }) => {
   const isElectron = typeof window !== 'undefined' && (window as any).xyro?.platform === 'electron';
   const [proxyErrors, setProxyErrors] = useState<Record<string, boolean>>({});
+  const [directLoad, setDirectLoad] = useState<Record<string, boolean>>({});
 
   // Handle postMessage events with strict event.source check
   useEffect(() => {
