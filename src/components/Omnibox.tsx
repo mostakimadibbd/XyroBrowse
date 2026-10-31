@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SearchEngine, BookmarkNode, HistoryItem } from '../types';
-import { Lock, Search, Star, BookOpen, Calculator, Globe, Clock, ChevronDown } from 'lucide-react';
+import { Search, Star, BookOpen, Calculator, Globe, Clock, ChevronDown } from 'lucide-react';
 import { evaluateMath, cleanDisplayUrl, SEARCH_ENGINES } from '../lib/url';
 
 interface OmniboxProps {
@@ -91,19 +91,29 @@ export const Omnibox: React.FC<OmniboxProps> = ({
     <div className="chrome-omnibox-container">
       <form onSubmit={handleSubmit}>
         <div className={`chrome-omnibox-input-wrapper ${isFocused ? 'focused' : ''}`}>
-          {/* Security / Search engine indicator */}
-          <div
-            style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', paddingRight: 6 }}
+          {/* Search engine selector - always visible */}
+          <button
+            type="button"
             onClick={() => setShowEngineDropdown(!showEngineDropdown)}
             title={`Active search: ${currentEngine.name}. Click to change engine.`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '2px 8px',
+              backgroundColor: 'var(--chrome-omnibox-bg)',
+              border: '1px solid var(--chrome-border-subtle)',
+              borderRadius: 6,
+              color: 'var(--chrome-text-primary)',
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
           >
-            {url.startsWith('https://') ? (
-              <Lock size={13} style={{ color: '#81c995', marginRight: 4 }} />
-            ) : (
-              <Search size={13} style={{ color: '#9aa0a6', marginRight: 4 }} />
-            )}
-            <ChevronDown size={10} style={{ color: '#9aa0a6' }} />
-          </div>
+            <Search size={12} style={{ color: 'var(--chrome-accent-blue)' }} />
+            <span>{currentEngine.name}</span>
+            <ChevronDown size={10} style={{ color: '#9aa0a6', marginLeft: 2 }} />
+          </button>
 
           {/* Omnibox input */}
           <input

@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserSettings } from '../types';
-import { Settings, Search, Palette, Shield, Trash2 } from 'lucide-react';
+import { Settings, Search, Palette, Shield, Trash2, Smartphone } from 'lucide-react';
 import { SEARCH_ENGINES } from '../lib/url';
 
 interface SettingsPageProps {
