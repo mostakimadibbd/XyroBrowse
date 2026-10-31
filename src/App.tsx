@@ -50,6 +50,12 @@ export default function App() {
   const [downloads, setDownloads] = useState<DownloadItem[]>(() => Storage.getDownloads());
   const [settings, setSettings] = useState<BrowserSettings>(() => Storage.getSettings());
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showShields, setShowShields] = useState(false);
+  const [showFindBar, setShowFindBar] = useState(false);
+  const [showClearDialog, setShowClearDialog] = useState(false);
+  const [showTabSwitcher, setShowTabSwitcher] = useState(false);
 
   // 2. Active Tab & Engine
   const activeTab = useMemo(
