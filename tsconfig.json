@@ -8,7 +8,8 @@
       "ES2022",
       "DOM",
       "DOM.Iterable",
-      "ESNext"
+      "ESNext",
+      "vite/client"
     ],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
