@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Tab, SearchEngine, BookmarkNode, HistoryItem, DownloadItem, BrowserSettings, ContextMenuState } from '../types';
 import { NewTabPage } from '../pages/NewTabPage';
 import { SearchResults } from '../pages/SearchResults';
@@ -90,6 +90,7 @@ export const Viewport: React.FC<ViewportProps> = ({
   onExitReaderMode,
 }) => {
   const isElectron = typeof window !== 'undefined' && (window as any).xyro?.platform === 'electron';
+  const [proxyErrors, setProxyErrors] = useState<Record<string, boolean>>({});
 
   // Handle postMessage events with strict event.source check
   useEffect(() => {
@@ -108,7 +109,13 @@ export const Viewport: React.FC<ViewportProps> = ({
       } else if (data.type === 'xyro-urlchange' && data.url) {
         onNavigateInTab(sourceTabId, data.url, data.replace === true, true);
       } else if (data.type === 'xyro-loaded') {
-        if (data.url) onNavigateInTab(sourceTabId, data.url, true, true);
+        if (data.url) {
+          const normalizedDataUrl = data.url.replace(/\/$/, '');
+          const normalizedTabUrl = tab.url.replace(/\/$/, '');
+          if (normalizedDataUrl !== normalizedTabUrl) {
+            onNavigateInTab(sourceTabId, data.url, true, true);
+          }
+        }
         if (data.title) onUpdateTabTitle(sourceTabId, data.title);
         if (typeof data.blocked === 'number') {
           onUpdateTabBlockedCount(sourceTabId, data.blocked);
@@ -283,25 +290,70 @@ export const Viewport: React.FC<ViewportProps> = ({
           );
         }
 
-        // Render Sandboxed IFrame in Lite Mode (key={t.id} prevents reloading on switch)
+// Render Sandboxed IFrame in Lite Mode (key={t.id} prevents reloading on switch)
         return (
-          <iframe
-            key={`${t.id}:${t.reloadKey || 0}`}
-            data-tab-id={t.id}
-            src={toProxyUrl(t.contentUrl || t.url, t.proxySessionId, settings.shieldsEnabled)}
-            title={t.title}
-            className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
-            sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
-            onLoad={() => onUpdateTabLoading(t.id, false)}
-            onError={() => onUpdateTabLoading(t.id, false)}
-            style={{
-              display: isActive ? 'block' : 'none',
-              transform: zoomScale !== 1 ? `scale(${zoomScale})` : undefined,
-              transformOrigin: '0 0',
-              width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
+          <>
+            <iframe
+              key={`${t.id}:${t.reloadKey || 0}`}
+              data-tab-id={t.id}
+              src={toProxyUrl(t.contentUrl || t.url, t.proxySessionId, settings.shieldsEnabled)}
+              title={t.title}
+              className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
+              sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+              onLoad={() => {
+                setProxyErrors((prev) => ({ ...prev, [t.id]: false }));
+                onUpdateTabLoading(t.id, false);
+              }}
+              onError={() => {
+                setProxyErrors((prev) => ({ ...prev, [t.id]: true }));
+                onUpdateTabLoading(t.id, false);
+              }}
+              style={{
+                display: isActive ? 'block' : 'none',
+                transform: zoomScale !== 1 ? `scale(${zoomScale})` : undefined,
+                transformOrigin: '0 0',
+width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
               height: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
-            }}
-          />
+              }}
+            />
+            {proxyErrors[t.id] && isActive && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 50,
+                  backgroundColor: 'var(--chrome-toolbar-bg)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 12,
+                  padding: 32,
+                  color: 'var(--chrome-text-primary)',
+                }}
+              >
+                <h3 style={{ fontSize: 16, fontWeight: 500 }}>Unable to load page via proxy</h3>
+                <p style={{ fontSize: 13, color: 'var(--chrome-text-secondary)', textAlign: 'center', maxWidth: 400 }}>
+                  The page could not be loaded through the proxy. This may be due to CORS restrictions or proxy unavailability.
+                </p>
+                <button
+                  onClick={() => onNavigate(t.contentUrl || t.url)}
+                  style={{
+                    backgroundColor: 'var(--chrome-accent-blue)',
+                    color: '#202124',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Open Directly
+                </button>
+              </div>
+            )}
+          </>
         );
       })}
       {internalContent && (
