@@ -27,16 +27,20 @@ export interface SearchResponse {
 
 export function getDirectSearchUrl(query: string, requestedEngine = 'Google'): string {
   const encodedQuery = encodeURIComponent(query);
-  switch (requestedEngine.toLowerCase()) {
-    case 'brave':
-      return `https://search.brave.com/search?q=${encodedQuery}`;
-    case 'duckduckgo':
-      return `https://duckduckgo.com/?q=${encodedQuery}`;
-    case 'bing':
-      return `https://www.bing.com/search?q=${encodedQuery}`;
-    default:
-      return `https://www.google.com/search?q=${encodedQuery}`;
-  }
+  const engineUrls: Record<string, string> = {
+    brave: `https://search.brave.com/search?q=${encodedQuery}`,
+    duckduckgo: `https://duckduckgo.com/?q=${encodedQuery}`,
+    bing: `https://www.bing.com/search?q=${encodedQuery}`,
+    yahoo: `https://search.yahoo.com/search?p=${encodedQuery}`,
+    yandex: `https://yandex.com/search/?text=${encodedQuery}`,
+    startpage: `https://www.startpage.com/sp/search?query=${encodedQuery}`,
+    mojeek: `https://www.mojeek.com/search?q=${encodedQuery}`,
+    qwant: `https://www.qwant.com/?q=${encodedQuery}`,
+    swisscows: `https://swisscows.com/en/web?query=${encodedQuery}`,
+    ecosia: `https://www.ecosia.org/search?q=${encodedQuery}`,
+    aol: `https://search.aol.com/aol/search?q=${encodedQuery}`,
+  };
+  return engineUrls[requestedEngine.toLowerCase()] || `https://www.google.com/search?q=${encodedQuery}`;
 }
 
 /**

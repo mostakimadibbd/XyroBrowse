@@ -5,6 +5,14 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   { id: 'brave', name: 'Brave', searchUrl: 'https://search.brave.com/search?q=', bang: '!b' },
   { id: 'duckduckgo', name: 'DuckDuckGo', searchUrl: 'https://duckduckgo.com/?q=', bang: '!ddg' },
   { id: 'bing', name: 'Bing', searchUrl: 'https://www.bing.com/search?q=', bang: '!bing' },
+  { id: 'yahoo', name: 'Yahoo', searchUrl: 'https://search.yahoo.com/search?p=', bang: '!y' },
+  { id: 'yandex', name: 'Yandex', searchUrl: 'https://yandex.com/search/?text=', bang: '!ya' },
+  { id: 'startpage', name: 'Startpage', searchUrl: 'https://www.startpage.com/sp/search?query=', bang: '!sp' },
+  { id: 'mojeek', name: 'Mojeek', searchUrl: 'https://www.mojeek.com/search?q=', bang: '!mj' },
+  { id: 'qwant', name: 'Qwant', searchUrl: 'https://www.qwant.com/?q=', bang: '!qw' },
+  { id: 'swisscows', name: 'Swisscows', searchUrl: 'https://swisscows.com/en/web?query=', bang: '!sc' },
+  { id: 'ecosia', name: 'Ecosia', searchUrl: 'https://www.ecosia.org/search?q=', bang: '!ec' },
+  { id: 'aol', name: 'AOL', searchUrl: 'https://search.aol.com/aol/search?q=', bang: '!aol' },
 ];
 
 /**

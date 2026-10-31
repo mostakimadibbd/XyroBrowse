@@ -15,6 +15,14 @@ export async function GET(request: Request): Promise<Response> {
     brave: 'Brave',
     duckduckgo: 'DuckDuckGo',
     bing: 'Bing',
+    yahoo: 'Yahoo',
+    yandex: 'Yandex',
+    startpage: 'Startpage',
+    mojeek: 'Mojeek',
+    qwant: 'Qwant',
+    swisscows: 'Swisscows',
+    ecosia: 'Ecosia',
+    aol: 'AOL',
   };
   const engine = engines[requestedEngine.toLowerCase()];
 
