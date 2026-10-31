@@ -1,4 +1,4 @@
-import fetch from 'cross-fetch';
+const fetch = globalThis.fetch;
 import { FiltersEngine, Request } from '@ghostery/adblocker';
 
 export const TRACKING_PARAMS = new Set([

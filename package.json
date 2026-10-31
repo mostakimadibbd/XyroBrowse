@@ -23,7 +23,6 @@
     "@ghostery/adblocker-electron-preload": "^2.20.3",
     "@vitejs/plugin-react": "^6.1.1",
     "cheerio": "^1.2.0",
-    "cross-fetch": "^4.1.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "hono": "^4.8.12",
