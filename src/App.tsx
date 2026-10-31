@@ -93,8 +93,8 @@ export default function App() {
   const [tabGroups, setTabGroups] = useState<TabGroup[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string>('default');
-  const [useVerticalTabs, setUseVerticalTabs] = useState<boolean>(() => 
-    localStorage.getItem('xyro-vertical-tabs') === 'true'
+  const [useVerticalTabs, setUseVerticalTabs] = useState<boolean>(() =>
+    Storage.getVerticalTabsEnabled()
   );
   const [sidePanel, setSidePanel] = useState<SidePanelState>({
     isOpen: false,
@@ -672,7 +672,7 @@ export default function App() {
   const toggleVerticalTabs = useCallback(() => {
     setUseVerticalTabs(prev => {
       const newValue = !prev;
-      localStorage.setItem('xyro-vertical-tabs', String(newValue));
+      Storage.saveVerticalTabsEnabled(newValue);
       return newValue;
     });
   }, []);

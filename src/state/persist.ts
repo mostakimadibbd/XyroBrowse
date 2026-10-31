@@ -103,12 +103,30 @@ export class Storage {
   }
 
   static getActiveTabId(): string {
-    return localStorage.getItem(KEYS.ACTIVE_TAB) || 'tab-1';
+    try {
+      return localStorage.getItem(KEYS.ACTIVE_TAB) || 'tab-1';
+    } catch {
+      return 'tab-1';
+    }
   }
 
   static saveActiveTabId(id: string) {
     try {
       localStorage.setItem(KEYS.ACTIVE_TAB, id);
+    } catch {}
+  }
+
+  static getVerticalTabsEnabled(): boolean {
+    try {
+      return localStorage.getItem('xyro-vertical-tabs') === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  static saveVerticalTabsEnabled(enabled: boolean): void {
+    try {
+      localStorage.setItem('xyro-vertical-tabs', String(enabled));
     } catch {}
   }
 
