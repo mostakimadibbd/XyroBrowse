@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session, WebContents } from 'electron';
+import { app, BrowserWindow, ipcMain, session, WebContents, webContents } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { DesktopStore } from './store.js';
@@ -78,6 +78,27 @@ async function createWindow() {
     });
   });
 
+  const pendingWebviewTabs: Array<{ tabId: string }> = [];
+  // Bind each attached Chromium webview to the tab manager so IPC controls
+  // operate on the real page rather than a disconnected tab record.
+  mainWindow.webContents.on('did-attach-webview', (_event, guestContents) => {
+    const guest = guestContents as WebContents;
+    const tabId = guest.getType?.() === 'webview' ? guest.id.toString() : '';
+    const owner = mainWindow?.webContents;
+    const elementId = (guest as any).hostWebContents?.id;
+    const partition = guest.session.getPartition?.() || 'persist:xyro';
+    const pending = pendingWebviewTabs.shift();
+    const actualTabId = pending?.tabId || tabId;
+    if (actualTabId) {
+      tabManager.attachWebContents(actualTabId, guest, (eventName, payload) => {
+        owner?.send('engine-event', eventName, payload);
+      });
+    }
+    guest.on('destroyed', () => {
+      if (actualTabId) tabManager.removeTab(actualTabId);
+    });
+  });
+
   // Secure webview creation
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     // 1. Remove dangerous preloads
@@ -148,7 +169,8 @@ app.on('open-url', (event, url) => {
 
 // IPC Handlers
 ipcMain.on('xyro-tab-create', (_evt, { tabId, url, isIncognito }) => {
-  tabManager.registerTab(tabId, isIncognito);
+  const info = tabManager.registerTab(tabId, isIncognito);
+  pendingWebviewTabs.push({ tabId });
 });
 
 ipcMain.on('xyro-tab-destroy', (_evt, { tabId }) => {
