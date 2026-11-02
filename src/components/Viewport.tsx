@@ -303,6 +303,11 @@ export const Viewport: React.FC<ViewportProps> = ({
             <webview
               key={`${t.id}:${t.reloadKey || 0}`}
               data-tab-id={t.id}
+              onDidAttach={() => {
+                const element = document.querySelector(`webview[data-tab-id="${t.id}"]`) as any;
+                const guestId = element?.getWebContentsId?.();
+                if (guestId) (window as any).xyro?.attachTab?.(t.id, guestId);
+              }}
               src={t.contentUrl || t.url}
               allowpopups="true"
               partition={t.isIncognito ? `incognito-${t.id}` : 'persist:xyro'}
