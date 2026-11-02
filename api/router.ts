@@ -5,7 +5,7 @@ import { rewriteHtml, rewriteCss, toProxyUrl } from '../server/rewriteHtml.js';
 import { extractArticle } from '../server/reader.js';
 import { getCookieJar, clearCookieJar } from '../server/cookieJar.js';
 import { documentNavRateLimiter, searchRateLimiter } from '../server/rateLimit.js';
-import { performSearch } from '../server/search.js';
+import { GET as GETSearchApi } from './search.js';
 
 const app = new Hono().basePath('/api');
 
@@ -73,55 +73,9 @@ app.get('/health', (c) => {
   return c.json({ status: 'ok', mode: 'lite', time: Date.now(), version: '1.0.0' });
 });
 
-app.get('/search', async (c) => {
-  const query = c.req.query('q')?.trim() || '';
-  const requestedEngine = c.req.query('engine') || 'Google';
-  const engines: Record<string, string> = {
-    google: 'Google',
-    brave: 'Brave',
-    duckduckgo: 'DuckDuckGo',
-    bing: 'Bing',
-    yahoo: 'Yahoo',
-    yandex: 'Yandex',
-    startpage: 'Startpage',
-    mojeek: 'Mojeek',
-    qwant: 'Qwant',
-    swisscows: 'Swisscows',
-    ecosia: 'Ecosia',
-    aol: 'AOL',
-  };
-  const engine = engines[requestedEngine.toLowerCase()];
-  const sendJson = (status: number, data: unknown) =>
-    Response.json(data, {
-      status,
-      headers: { 'Cache-Control': 'private, no-store' },
-    });
-
-  if (!query) {
-    return sendJson(400, { error: 'Missing query parameter', code: 'ERR_MISSING_QUERY' });
-  }
-  if (query.length > 256) {
-    return sendJson(400, { error: 'Search query is too long', code: 'ERR_QUERY_TOO_LONG' });
-  }
-  if (!engine) {
-    return sendJson(400, { error: 'Unsupported search engine', code: 'ERR_INVALID_ENGINE' });
-  }
-
-  const clientIp = c.req.header('x-forwarded-for')?.split(',')[0].trim() || 'anonymous';
-  if (!searchRateLimiter.check(clientIp)) {
-    return Response.json(
-      { error: 'Too many searches. Please try again shortly.', code: 'ERR_TOO_MANY_REQUESTS' },
-      { status: 429, headers: { 'Cache-Control': 'private, no-store', 'Retry-After': '60' } }
-    );
-  }
-
-  try {
-    return sendJson(200, await performSearch(query, engine));
-  } catch (error) {
-    console.error('Search API failed:', error);
-    return sendJson(502, { error: 'Search is temporarily unavailable', code: 'ERR_SEARCH_FAILED' });
-  }
-});
+app.get('/search', (c) => GETSearchApi(new Request(c.req.url, {
+  headers: c.req.raw.headers,
+})));
 
 app.post('/clear-data', async (c) => {
   const body = await c.req.json();
