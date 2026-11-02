@@ -306,6 +306,7 @@ export const Viewport: React.FC<ViewportProps> = ({
               src={t.contentUrl || t.url}
               allowpopups="true"
               partition={t.isIncognito ? `incognito-${t.id}` : 'persist:xyro'}
+              webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
               className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
               style={{
                 display: isActive ? 'flex' : 'none',
