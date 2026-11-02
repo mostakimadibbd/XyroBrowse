@@ -21,11 +21,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS Apple Silicon
+          - name: macOS Universal
             os: macos-14
-            args: --mac dmg zip --arm64
+            args: --mac dmg zip --universal
           - name: macOS Intel
-            os: macos-15-intel
+            os: macos-13
             args: --mac dmg zip --x64
           - name: Windows x64
             os: windows-latest
@@ -55,13 +55,17 @@ jobs:
       - name: Compile Electron main and preload
         run: npm run build:electron
 
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libnss3-dev libatk-bridge2.0-0 libgtk-3-0 libxss1 libasound2t64
+
       - name: Package installers
         run: npx electron-builder ${{ matrix.args }} --publish never
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: xyrobrowse-${{ strategy.job-index }}
+          name: xyrobrowse-${{ matrix.name }}
           path: release/*
           if-no-files-found: error
           retention-days: 7
@@ -82,4 +86,5 @@ jobs:
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: release-assets/*
