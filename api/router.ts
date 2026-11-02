@@ -125,7 +125,7 @@ app.get('/search', async (c) => {
 
 app.post('/clear-data', async (c) => {
   const body = await c.req.json();
-  const sessionId = c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID();
+  const sessionId = String(body?.sessionId || c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID());
   
   if (body?.clearCookies) {
     clearCookieJar(sessionId);
