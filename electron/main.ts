@@ -110,12 +110,13 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // Load Vite app in dev or index.html in prod
+  // Load the React browser chrome. Website documents are rendered by native
+  // Chromium webviews, never by the hosted Lite Mode proxy.
   const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3000';
   if (app.isPackaged) {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   } else {
-    mainWindow.loadURL(devUrl);
+    await mainWindow.loadURL(devUrl);
   }
 
   mainWindow.on('closed', () => {
@@ -157,6 +158,38 @@ ipcMain.on('xyro-tab-destroy', (_evt, { tabId }) => {
 ipcMain.on('xyro-tab-set-active', (_evt, { tabId }) => {
   tabManager.touchTab(tabId);
 });
+// Native tab lifecycle and browser navigation. The renderer's webview elements
+// own the actual Chromium WebContents; the manager tracks activity and history.
+ipcMain.on('xyro-tab-navigate', (_evt, { tabId, url }: { tabId: string; url: string }) => {
+  const tab = tabManager.getTab(tabId);
+  tab?.contents?.loadURL(url);
+});
+ipcMain.on('xyro-tab-back', (_evt, { tabId }) => {
+  const tab = tabManager.getTab(tabId);
+  if (tab?.contents?.navigationHistory.canGoBack()) tab.contents.navigationHistory.goBack();
+});
+ipcMain.on('xyro-tab-forward', (_evt, { tabId }) => {
+  const tab = tabManager.getTab(tabId);
+  if (tab?.contents?.navigationHistory.canGoForward()) tab.contents.navigationHistory.goForward();
+});
+ipcMain.on('xyro-tab-reload', (_evt, { tabId, hard }: { tabId: string; hard?: boolean }) => {
+  const tab = tabManager.getTab(tabId);
+  if (hard) tab?.contents?.reloadIgnoringCache();
+  else tab?.contents?.reload();
+});
+ipcMain.on('xyro-tab-stop', (_evt, { tabId }) => tabManager.getTab(tabId)?.contents?.stop());
+ipcMain.on('xyro-tab-zoom', (_evt, { tabId, factor }: { tabId: string; factor: number }) => {
+  const tab = tabManager.getTab(tabId);
+  if (tab?.contents && Number.isFinite(factor)) tab.contents.setZoomFactor(Math.max(0.25, Math.min(5, factor)));
+});
+ipcMain.on('xyro-tab-find', (_evt, { tabId, text, forward }: { tabId: string; text: string; forward?: boolean }) => {
+  const contents = tabManager.getTab(tabId)?.contents;
+  if (contents && text) contents.findInPage(text, { forward: forward !== false });
+});
+ipcMain.on('xyro-tab-stop-find', (_evt, { tabId }) => tabManager.getTab(tabId)?.contents?.stopFindInPage('clearSelection'));
+ipcMain.on('xyro-tab-print', (_evt, { tabId }) => tabManager.getTab(tabId)?.contents?.print());
+ipcMain.on('xyro-tab-devtools', (_evt, { tabId }) => tabManager.getTab(tabId)?.contents?.openDevTools({ mode: 'detach' }));
+
 
 ipcMain.handle('xyro-search-suggest', async (_evt, { query, engine }) => {
   return searchSuggest.getSuggestions(query, engine);
