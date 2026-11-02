@@ -135,7 +135,7 @@ app.post('/clear-data', async (c) => {
     if (!/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
       return c.json({ error: 'Invalid private session' }, 400);
     }
-    clearCookieJar(`private:${privateSessionId}`);
+    clearCookieJar(privateSessionId);
   }
   return c.body(null, 204);
 });
@@ -200,7 +200,7 @@ app.all('/p/:origin/**', async (c) => {
     c.header('Set-Cookie', `xyro_sid=${sessionId}; Path=/; HttpOnly; SameSite=Lax${secure}`);
   }
 
-  const sid = privateSessionId ? `private:${privateSessionId}` : sessionId;
+  const sid = privateSessionId ? privateSessionId : sessionId;
   const proxySessionId = privateSessionId || sessionId;
   const jar = getCookieJar(sid);
 
@@ -357,7 +357,7 @@ app.get('/reader', async (c) => {
 
   try {
     const sessionId = c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID();
-    const cookieJar = privateSessionId ? getCookieJar(`private:${privateSessionId}`) : getCookieJar(sessionId);
+    const cookieJar = privateSessionId ? getCookieJar(privateSessionId) : getCookieJar(sessionId);
     const article = await extractArticle(targetUrl, cookieJar, shieldsEnabled);
     return c.json(article);
   } catch (err: unknown) {
@@ -382,7 +382,7 @@ app.get('/download', async (c) => {
 
   try {
     const sessionId = c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID();
-    const sid = privateSessionId ? `private:${privateSessionId}` : sessionId;
+    const sid = privateSessionId ? privateSessionId : sessionId;
     const jar = getCookieJar(sid);
     const fetched = await safeFetch(targetUrl, { cookieJar: jar, shieldsEnabled });
 
