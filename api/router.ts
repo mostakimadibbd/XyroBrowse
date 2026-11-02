@@ -4,7 +4,7 @@ import { safeFetch, SsfError } from '../server/safeFetch.js';
 import { rewriteHtml, rewriteCss, toProxyUrl } from '../server/rewriteHtml.js';
 import { extractArticle } from '../server/reader.js';
 import { getCookieJar, clearCookieJar } from '../server/cookieJar.js';
-import { documentNavRateLimiter, searchRateLimiter } from '../server/rateLimit.js';
+import { documentNavRateLimiter } from '../server/rateLimit.js';
 import { GET as GETSearchApi } from './search.js';
 
 const app = new Hono().basePath('/api');
