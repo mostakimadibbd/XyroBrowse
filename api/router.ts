@@ -193,7 +193,7 @@ app.all('/p/:origin/**', async (c) => {
   // The Express development server sets this cookie in middleware. Recreate
   // the same session behavior in Vercel's serverless handler.
   const cookieHeader = c.req.header('cookie') || '';
-  const cookieMatch = cookieHeader.match(/(?:^|;\\s*)xyro_sid=([^;]+)/);
+  const cookieMatch = cookieHeader.match(/xyro_sid=([^;]+)/);
   const sessionId = cookieMatch?.[1] || crypto.randomUUID();
   if (!cookieMatch) {
     const secure = new URL(c.req.url).protocol === 'https:' ? '; Secure' : '';
