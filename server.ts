@@ -56,7 +56,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 app.post('/api/clear-data', (req: Request, res: Response) => {
   if (req.body?.clearCookies) {
-    clearCookieJar((req as any).xyro_sid);
+    clearCookieJar(String(req.body.sessionId || (req as any).xyro_sid));
   }
   if (req.body?.privateSessionId) {
     const privateSessionId = String(req.body.privateSessionId);
