@@ -20,7 +20,7 @@ export function resolveUrl(relativeOrAbsolute: string, baseUrl: string): string 
 
 /**
  * Converts a target URL to path-based proxy URL:
- * /api/p/<encodeURIComponent(origin)>/<pathname><search><hash>
+ * /api/p/<base64url(origin)>/<pathname><search><hash>
  */
 export function toProxyUrl(
   target: string,
@@ -48,12 +48,21 @@ export function toProxyUrl(
     if (sessionId) u.searchParams.set('__xyro_sid', sessionId);
     if (shieldsEnabled) u.searchParams.delete('__xyro_shields');
     else u.searchParams.set('__xyro_shields', 'off');
-    const encOrigin = encodeURIComponent(u.origin);
+    const encOrigin = Buffer.from(u.origin, 'utf8').toString('base64url');
     const sub = `${u.pathname}${u.search}${u.hash}`;
     return `/api/p/${encOrigin}${sub.startsWith('/') ? sub : '/' + sub}`;
   } catch {
     return target;
   }
+}
+
+/** Decode both the current base64url origin and legacy percent-encoded origins. */
+function decodeProxyOrigin(value: string): string {
+  try {
+    const decoded = Buffer.from(value, 'base64url').toString('utf8');
+    if (decoded.startsWith('http://') || decoded.startsWith('https://')) return decoded;
+  } catch {}
+  return decodeURIComponent(value);
 }
 
 /**
@@ -63,7 +72,7 @@ export function fromProxyPath(proxyPath: string): string | null {
   const match = proxyPath.match(/^\/api\/p\/([^/?#]+)(.*)$/);
   if (!match) return null;
   try {
-    const origin = decodeURIComponent(match[1]);
+    const origin = decodeProxyOrigin(match[1]);
     const subpath = match[2] || '/';
     return new URL(subpath, origin).toString();
   } catch {
