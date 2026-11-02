@@ -97,7 +97,15 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
 
   let origin = '';
   try {
-    origin = decodeURIComponent(encOrigin);
+    // Current proxy paths use base64url origins. Accept legacy percent-encoded
+    // paths too, so existing bookmarks and open tabs continue to work.
+    const decoded = Buffer.from(encOrigin, 'base64url').toString('utf8');
+    origin = /^https?:\\/\\//i.test(decoded) ? decoded : decodeURIComponent(encOrigin);
+    const parsedOrigin = new URL(origin);
+    if (!['http:', 'https:'].includes(parsedOrigin.protocol) || parsedOrigin.origin !== origin) {
+      res.status(400).send('Invalid proxy origin');
+      return;
+    }
   } catch {
     res.status(400).send('Invalid encoded origin');
     return;
@@ -214,7 +222,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
         rawHtml,
         fetched.finalUrl,
         undefined,
-        privateSessionId || undefined,
+        privateSessionId || (req as any).xyro_sid,
         shieldsEnabled
       );
 
