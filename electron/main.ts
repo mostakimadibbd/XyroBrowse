@@ -152,13 +152,6 @@ ipcMain.on('xyro-tab-attach', (_evt, { tabId, webContentsId }: { tabId: string; 
     mainWindow?.webContents.send('engine-event', eventName, payload);
   });
 });
-ipcMain.on('xyro-tab-attach', (_evt, { tabId, webContentsId }: { tabId: string; webContentsId: number }) => {
-  const guest = webContents.fromId(webContentsId);
-  if (!guest || guest.isDestroyed()) return;
-  tabManager.attachWebContents(tabId, guest, (eventName, payload) => {
-    mainWindow?.webContents.send('engine-event', eventName, payload);
-  });
-});
 
 ipcMain.on('xyro-tab-destroy', (_evt, { tabId }) => {
   tabManager.removeTab(tabId);
