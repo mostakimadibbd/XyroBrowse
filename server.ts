@@ -100,7 +100,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
     // Current proxy paths use base64url origins. Accept legacy percent-encoded
     // paths too, so existing bookmarks and open tabs continue to work.
     const decoded = Buffer.from(encOrigin, 'base64url').toString('utf8');
-    origin = /^https?:\\/\\//i.test(decoded) ? decoded : decodeURIComponent(encOrigin);
+    origin = /^https?:\/\//i.test(decoded) ? decoded : decodeURIComponent(encOrigin);
     const parsedOrigin = new URL(origin);
     if (!['http:', 'https:'].includes(parsedOrigin.protocol) || parsedOrigin.origin !== origin) {
       res.status(400).send('Invalid proxy origin');
