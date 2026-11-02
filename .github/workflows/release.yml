@@ -25,9 +25,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS Universal
+          - name: macOS Apple Silicon
             os: macos-26
-            args: --mac dmg zip --universal
+            args: --mac dmg zip --arm64
+          - name: macOS Intel
+            os: macos-15-intel
+            args: --mac dmg zip --x64
           - name: Windows x64
             os: windows-latest
             args: --win nsis --x64
