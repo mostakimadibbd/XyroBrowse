@@ -1,5 +1,4 @@
-import fetch from 'cross-fetch';
-
+// Node.js 20+ provides a standards-based global fetch implementation.
 export class DesktopSearchSuggest {
   private activeController: AbortController | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
