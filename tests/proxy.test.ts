@@ -166,12 +166,12 @@ test('Proxy Fixture Server - verifies relative CSS, modules, login jar, range, a
     const { html } = rewriteHtml(rawHtml, `${baseUrl}/page-full`);
 
     // Verify <base href="..."> injected
-    assert.match(html, /<base href="\/api\/p\/http%3A%2F%2F127\.0\.0\.1%3A/);
-    // Verify CSS link rewritten to path-based proxy
-    assert.match(html, /href="\/api\/p\/http%3A%2F%2F127\.0\.0\.1%3A\d+\/styles\/main\.css"/);
-    // Verify script src rewritten
-    assert.match(html, /src="\/api\/p\/http%3A%2F%2F127\.0\.0\.1%3A\d+\/modules\/app\.js"/);
-    // Verify SVG <use> rewritten
+    assert.ok(html.includes(`<base href="${toProxyUrl(`${baseUrl}/page-full`)}">`));
+    assert.ok(html.includes(toProxyUrl(`${baseUrl}/styles/main.css`)));
+    assert.ok(html.includes(toProxyUrl(`${baseUrl}/modules/app.js`)));
+    assert.ok(html.includes(toProxyUrl(`${baseUrl}/icons.svg`)));
+    assert.ok(html.includes(toProxyUrl(`${baseUrl}/bg.jpg`)));
+    assert.ok(html.includes(toProxyUrl(`${baseUrl}/login`)));
     assert.match(html, /href="\/api\/p\/http%3A%2F%2F127\.0\.0\.1%3A\d+\/icons\.svg#star"/);
     // Verify inline style rewritten
     assert.match(html, /style="background:\s*url\(&quot;\/api\/p\/http%3A%2F%2F127\.0\.0\.1%3A\d+\/bg\.jpg&quot;\);"/);
