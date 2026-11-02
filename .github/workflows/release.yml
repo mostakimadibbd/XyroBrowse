@@ -1,0 +1,80 @@
+name: Build and publish XyroBrowse installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            os: macos-14
+            args: --mac dmg zip --arm64
+          - name: macOS Intel
+            os: macos-15-intel
+            args: --mac dmg zip --x64
+          - name: Windows x64
+            os: windows-latest
+            args: --win nsis --x64
+          - name: Linux x64
+            os: ubuntu-latest
+            args: --linux AppImage deb --x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --include=dev
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build web interface
+        run: npm run build
+
+      - name: Compile Electron main and preload
+        run: npm run build:electron
+
+      - name: Package installers
+        run: npx electron-builder ${{ matrix.args }} --publish never
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xyrobrowse-${{ strategy.job-index }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub release
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all installers
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-assets/*
