@@ -237,7 +237,11 @@ test('Proxy Fixture Server - verifies relative CSS, modules, login jar, range, a
       false
     );
     assert.equal(unshieldedHtml.blockedCount, 0);
-    assert.match(unshieldedHtml.html, /doubleclick\.net/);
+    assert.ok(
+      unshieldedHtml.html.includes(
+        toProxyUrl('https://doubleclick.net/ad.png', undefined, undefined, false)
+      )
+    );
   } finally {
     server.close();
   }
