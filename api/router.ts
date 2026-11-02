@@ -439,8 +439,13 @@ export default async function handler(
     }
 
     const headers = new Headers();
+    // Hop-by-hop headers belong to Node's HTTP transport, not the Web Request.
+    const hopByHop = new Set([
+      'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+      'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length',
+    ]);
     for (const [name, value] of Object.entries(req.headers)) {
-      if (value === undefined) continue;
+      if (value === undefined || hopByHop.has(name.toLowerCase())) continue;
       if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
       else headers.set(name, value);
     }
