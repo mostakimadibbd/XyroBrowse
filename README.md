@@ -26,6 +26,12 @@ To package for production:
 npm run build:desktop
 ```
 
+### Download installable builds
+
+Visit [`/download.html`](https://xyrobrowsebd.vercel.app/download.html) for the platform download page. macOS DMG/ZIP, Windows installer, and Linux AppImage/DEB packages are built and attached to GitHub Releases when a `v*` tag is published. Desktop builds use bundled Chromium through Electron and do not rely on the Vercel proxy for normal page navigation.
+
+Android currently uses the installable web/PWA version only; it is **not yet a native Chromium Android browser**. Its website rendering remains subject to Lite Mode's proxy limitations.
+
 ### Deploying Lite Mode to Vercel
 
 Vercel hosts the web/Lite version; it cannot run the Electron desktop browser. Import this repository into Vercel with the Vite framework preset and keep the repository's `vercel.json` settings. The deployment builds the frontend and exposes the `/api/search` endpoint and the catch-all API function for proxy, reader, download, and data-clearing requests.
