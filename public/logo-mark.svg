@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="xyroGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ec4899" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#18191c"/>
+  <path d="M140 140 L372 372 M372 140 L140 372" stroke="url(#xyroGrad)" stroke-width="48" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="32" fill="url(#xyroGrad)"/>
+  <circle cx="256" cy="256" r="160" stroke="url(#xyroGrad)" stroke-width="16" stroke-dasharray="24 16"/>
+</svg>

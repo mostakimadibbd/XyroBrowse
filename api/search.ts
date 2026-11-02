@@ -32,9 +32,11 @@ export async function GET(request: Request): Promise<Response> {
   if (!query) {
     return sendJson(400, { error: 'Missing query parameter', code: 'ERR_MISSING_QUERY' });
   }
+
   if (query.length > 256) {
     return sendJson(400, { error: 'Search query is too long', code: 'ERR_QUERY_TOO_LONG' });
   }
+
   if (!engine) {
     return sendJson(400, { error: 'Unsupported search engine', code: 'ERR_INVALID_ENGINE' });
   }

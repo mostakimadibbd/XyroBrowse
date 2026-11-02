@@ -26,6 +26,7 @@ interface ToolbarProps {
   onChangeEngine: (engine: SearchEngine) => void;
   onToggleShields: () => void;
   onOpenDownloads: () => void;
+  onOpenDownloadPortal?: () => void;
   onToggleMenu: () => void;
 }
 
@@ -52,6 +53,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onChangeEngine,
   onToggleShields,
   onOpenDownloads,
+  onOpenDownloadPortal,
   onToggleMenu,
 }) => {
   return (
@@ -151,6 +153,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       >
         <Download size={16} />
       </button>
+
+      {/* Get Desktop App Button */}
+      {onOpenDownloadPortal && (
+        <button
+          className="chrome-btn-icon"
+          onClick={onOpenDownloadPortal}
+          title="Download Desktop App (macOS, Windows, Android)"
+          aria-label="Download Desktop App"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '3px 8px',
+            borderRadius: 6,
+            fontSize: 11,
+            fontWeight: 600,
+            backgroundColor: 'rgba(138, 180, 248, 0.12)',
+            color: 'var(--xyro-accent, #8ab4f8)',
+            border: '1px solid rgba(138, 180, 248, 0.25)',
+          }}
+        >
+          <Download size={13} />
+          <span>Get App</span>
+        </button>
+      )}
 
       {/* Chrome Menu Button */}
       <button

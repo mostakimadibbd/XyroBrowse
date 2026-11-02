@@ -38,7 +38,7 @@ export const Omnibox: React.FC<OmniboxProps> = ({
   // Sync input value when URL changes externally while not focused
   useEffect(() => {
     if (!isFocused) {
-      setInputValue(url === 'chrome://newtab' ? '' : url);
+      setInputValue(url === 'xyro://newtab' || url === 'chrome://newtab' ? '' : url);
     }
   }, [url, isFocused]);
 
@@ -120,11 +120,11 @@ export const Omnibox: React.FC<OmniboxProps> = ({
             ref={inputRef}
             type="text"
             className="chrome-omnibox-input"
-            value={isFocused ? inputValue : (url === 'chrome://newtab' ? '' : cleanDisplayUrl(url))}
+            value={isFocused ? inputValue : (url === 'xyro://newtab' || url === 'chrome://newtab' ? '' : cleanDisplayUrl(url))}
             placeholder={displayPlaceholder}
             onFocus={() => {
               setIsFocused(true);
-              setInputValue(url === 'chrome://newtab' ? '' : url);
+              setInputValue(url === 'xyro://newtab' || url === 'chrome://newtab' ? '' : url);
               setTimeout(() => inputRef.current?.select(), 10);
             }}
             onBlur={() => {

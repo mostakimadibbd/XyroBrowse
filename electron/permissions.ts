@@ -1,3 +1,4 @@
+import { Session } from 'electron';
 import { DesktopStore } from './store.js';
 
 export type PermissionType = 'geolocation' | 'notifications' | 'media' | 'clipboard-read' | 'fullscreen';
@@ -7,6 +8,21 @@ export class DesktopPermissionManager {
 
   constructor(store: DesktopStore) {
     this.store = store;
+  }
+
+  public attachToSession(
+    session: Session,
+    promptUI: (req: { origin: string; permission: PermissionType }) => Promise<boolean>
+  ): void {
+    session.setPermissionRequestHandler((webContents, permission, callback) => {
+      try {
+        const rawUrl = webContents.getURL();
+        const origin = rawUrl ? new URL(rawUrl).origin : '';
+        this.handlePermissionRequest(origin, permission as PermissionType, callback, promptUI);
+      } catch {
+        callback(false);
+      }
+    });
   }
 
   public checkPermission(origin: string, permission: PermissionType): 'allow' | 'deny' | 'prompt' {

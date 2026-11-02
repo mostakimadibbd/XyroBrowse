@@ -112,6 +112,7 @@ export interface BrowserSettings {
   mobileToolbarPosition: 'bottom' | 'top';
   shieldsEnabled: boolean;
   blockThirdPartyCookies: boolean;
+  verticalTabs?: boolean;
 }
 
 export interface ContextMenuState {

@@ -5,14 +5,6 @@ export const SEARCH_ENGINES: SearchEngine[] = [
   { id: 'brave', name: 'Brave', searchUrl: 'https://search.brave.com/search?q=', bang: '!b' },
   { id: 'duckduckgo', name: 'DuckDuckGo', searchUrl: 'https://duckduckgo.com/?q=', bang: '!ddg' },
   { id: 'bing', name: 'Bing', searchUrl: 'https://www.bing.com/search?q=', bang: '!bing' },
-  { id: 'yahoo', name: 'Yahoo', searchUrl: 'https://search.yahoo.com/search?p=', bang: '!y' },
-  { id: 'yandex', name: 'Yandex', searchUrl: 'https://yandex.com/search/?text=', bang: '!ya' },
-  { id: 'startpage', name: 'Startpage', searchUrl: 'https://www.startpage.com/sp/search?query=', bang: '!sp' },
-  { id: 'mojeek', name: 'Mojeek', searchUrl: 'https://www.mojeek.com/search?q=', bang: '!mj' },
-  { id: 'qwant', name: 'Qwant', searchUrl: 'https://www.qwant.com/?q=', bang: '!qw' },
-  { id: 'swisscows', name: 'Swisscows', searchUrl: 'https://swisscows.com/en/web?query=', bang: '!sc' },
-  { id: 'ecosia', name: 'Ecosia', searchUrl: 'https://www.ecosia.org/search?q=', bang: '!ec' },
-  { id: 'aol', name: 'AOL', searchUrl: 'https://search.aol.com/aol/search?q=', bang: '!aol' },
 ];
 
 /**
@@ -22,8 +14,8 @@ export function isUrlOrDomain(raw: string): boolean {
   const str = raw.trim();
   if (!str) return false;
 
-  // Internal chrome:// pages
-  if (str.startsWith('chrome://') || str.startsWith('view-source:')) return true;
+  // Internal xyro:// and chrome:// pages
+  if (str.startsWith('xyro://') || str.startsWith('chrome://') || str.startsWith('view-source:')) return true;
 
   // Schemes
   if (/^https?:\/\//i.test(str)) return true;
@@ -52,11 +44,11 @@ export function resolveOmniboxInput(
 ): { url: string; isSearch: boolean; query?: string } {
   const text = rawInput.trim();
   if (!text) {
-    return { url: 'chrome://newtab', isSearch: false };
+    return { url: 'xyro://newtab', isSearch: false };
   }
 
-  // Check for internal Chrome pages
-  if (text.startsWith('chrome://') || text.startsWith('view-source:')) {
+  // Check for internal pages
+  if (text.startsWith('xyro://') || text.startsWith('chrome://') || text.startsWith('view-source:')) {
     return { url: text, isSearch: false };
   }
 
@@ -65,8 +57,8 @@ export function resolveOmniboxInput(
     if (text.startsWith(`${eng.bang} `)) {
       const q = text.slice(eng.bang.length + 1).trim();
       return {
-        url: `${eng.searchUrl}${encodeURIComponent(q)}`,
-        isSearch: false,
+        url: `xyro://search?q=${encodeURIComponent(q)}&engine=${encodeURIComponent(eng.name)}`,
+        isSearch: true,
         query: q,
       };
     }
@@ -94,10 +86,10 @@ export function resolveOmniboxInput(
     return { url: `https://${text}`, isSearch: false };
   }
 
-  // Send searches directly to the selected provider so its results match the engine choice.
+  // Otherwise, route through native Search with currentEngine
   return {
-    url: `${currentEngine.searchUrl}${encodeURIComponent(text)}`,
-    isSearch: false,
+    url: `xyro://search?q=${encodeURIComponent(text)}&engine=${encodeURIComponent(currentEngine.name)}`,
+    isSearch: true,
     query: text,
   };
 }
@@ -111,7 +103,6 @@ export function evaluateMath(input: string): string | null {
   if (!/[\d]/.test(clean) || !/[+\-*/]/.test(clean)) return null;
 
   try {
-    // Safe evaluation using Function
     const res = Function(`"use strict"; return (${clean})`)();
     if (typeof res === 'number' && !isNaN(res) && isFinite(res)) {
       return String(Math.round(res * 1000000) / 1000000);
@@ -127,7 +118,7 @@ export function evaluateMath(input: string): string | null {
  */
 export function cleanDisplayUrl(urlString: string): string {
   try {
-    if (urlString.startsWith('chrome://')) return urlString;
+    if (urlString.startsWith('xyro://') || urlString.startsWith('chrome://')) return urlString;
     const u = new URL(urlString);
     let host = u.hostname.replace(/^www\./, '');
     let path = u.pathname === '/' ? '' : u.pathname;
@@ -142,7 +133,7 @@ export function cleanDisplayUrl(urlString: string): string {
  */
 export function getFaviconUrl(urlString: string): string {
   try {
-    if (urlString.startsWith('chrome://') || urlString.startsWith('view-source:')) {
+    if (urlString.startsWith('xyro://') || urlString.startsWith('chrome://') || urlString.startsWith('view-source:')) {
       return '';
     }
     const domain = new URL(urlString).hostname;

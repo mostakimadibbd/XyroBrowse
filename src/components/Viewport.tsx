@@ -1,30 +1,26 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, lazy, Suspense } from 'react';
 import { Tab, SearchEngine, BookmarkNode, HistoryItem, DownloadItem, BrowserSettings, ContextMenuState } from '../types';
-import { NewTabPage } from '../pages/NewTabPage';
-import { SearchResults } from '../pages/SearchResults';
-import { HistoryPage } from '../pages/HistoryPage';
-import { BookmarksPage } from '../pages/BookmarksPage';
-import { DownloadsPage } from '../pages/DownloadsPage';
-import { SettingsPage } from '../pages/SettingsPage';
-import { AboutPage } from '../pages/AboutPage';
-import { SourceViewer } from './SourceViewer';
-import { ReaderView } from './ReaderView';
+import { getBrowserEngine } from '../engine';
 
-export function toProxyUrl(
-  url: string,
-  sessionId?: string,
-  shieldsEnabled = true
-): string {
+const NewTabPage = lazy(() => import('../pages/NewTabPage').then((m) => ({ default: m.NewTabPage })));
+const SearchResults = lazy(() => import('../pages/SearchResults').then((m) => ({ default: m.SearchResults })));
+const HistoryPage = lazy(() => import('../pages/HistoryPage').then((m) => ({ default: m.HistoryPage })));
+const BookmarksPage = lazy(() => import('../pages/BookmarksPage').then((m) => ({ default: m.BookmarksPage })));
+const DownloadsPage = lazy(() => import('../pages/DownloadsPage').then((m) => ({ default: m.DownloadsPage })));
+const SettingsPage = lazy(() => import('../pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const AboutPage = lazy(() => import('../pages/AboutPage').then((m) => ({ default: m.AboutPage })));
+const DownloadPortal = lazy(() => import('../pages/DownloadPortal').then((m) => ({ default: m.DownloadPortal })));
+const SourceViewer = lazy(() => import('./SourceViewer').then((m) => ({ default: m.SourceViewer })));
+const ReaderView = lazy(() => import('./ReaderView').then((m) => ({ default: m.ReaderView })));
+
+export function toProxyUrl(url: string): string {
   try {
     const trimmed = url.trim();
     if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
       return url;
     }
     const u = new URL(trimmed);
-    if (sessionId) u.searchParams.set('__xyro_sid', sessionId);
-    if (shieldsEnabled) u.searchParams.delete('__xyro_shields');
-    else u.searchParams.set('__xyro_shields', 'off');
-    const encOrigin = btoa(u.origin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    const encOrigin = encodeURIComponent(u.origin);
     const sub = u.pathname + u.search + u.hash;
     return `/api/p/${encOrigin}${sub.startsWith('/') ? sub : '/' + sub}`;
   } catch {
@@ -42,15 +38,13 @@ interface ViewportProps {
   downloads: DownloadItem[];
   settings: BrowserSettings;
   onNavigate: (url: string) => void;
-  onRetry: () => void;
-  onNavigateInTab: (tabId: string, url: string, replace?: boolean, preserveDocument?: boolean) => void;
-  onOpenNewTab: (url: string) => void;
-  onUpdateTabTitle: (tabId: string, title: string) => void;
-  onUpdateTabFavicon: (tabId: string, favicon: string) => void;
-  onUpdateTabBlockedCount: (tabId: string, count: number) => void;
-  onUpdateTabLoading: (tabId: string, isLoading: boolean) => void;
+  onUpdateTitle: (title: string, tabId?: string) => void;
+  onUpdateFavicon?: (favicon: string, tabId?: string) => void;
+  onUpdateNavState?: (tabId: string, url: string, canGoBack: boolean, canGoForward: boolean) => void;
+  onUpdateLoading?: (tabId: string, isLoading: boolean) => void;
+  onUpdateBlockedCount: (count: number, tabId?: string) => void;
   onContextMenu: (state: ContextMenuState) => void;
-  onKeyShortcut: (key: string, ctrlKey: boolean, shiftKey: boolean, altKey?: boolean) => void;
+  onKeyShortcut: (key: string, ctrlKey: boolean, shiftKey: boolean) => void;
   onAddBookmark: (title: string, url: string) => void;
   onDeleteBookmark: (id: string) => void;
   onImportBookmarks: (bookmarks: BookmarkNode[]) => void;
@@ -62,6 +56,109 @@ interface ViewportProps {
   onExitReaderMode: () => void;
 }
 
+// Individual Webview Tab for Electron
+const WebviewGuestTab: React.FC<{
+  tab: Tab;
+  isActive: boolean;
+  onUpdateTitle: (title: string, tabId: string) => void;
+  onUpdateFavicon?: (favicon: string, tabId: string) => void;
+  onUpdateNavState?: (tabId: string, url: string, canGoBack: boolean, canGoForward: boolean) => void;
+  onUpdateLoading?: (tabId: string, isLoading: boolean) => void;
+}> = ({ tab, isActive, onUpdateTitle, onUpdateFavicon, onUpdateNavState, onUpdateLoading }) => {
+  const webviewRef = useRef<any>(null);
+  const initialUrlRef = useRef<string>(tab.url);
+
+  useEffect(() => {
+    const el = webviewRef.current;
+    if (!el) return;
+
+    const engine = getBrowserEngine() as any;
+    if (engine && typeof engine.registerWebview === 'function') {
+      engine.registerWebview(tab.id, el);
+    }
+
+    const handleStartLoading = () => onUpdateLoading?.(tab.id, true);
+    const handleStopLoading = () => {
+      onUpdateLoading?.(tab.id, false);
+      if (typeof el.getURL === 'function') {
+        const currentUrl = el.getURL();
+        const canBack = typeof el.canGoBack === 'function' ? el.canGoBack() : false;
+        const canFwd = typeof el.canGoForward === 'function' ? el.canGoForward() : false;
+        onUpdateNavState?.(tab.id, currentUrl, canBack, canFwd);
+      }
+    };
+
+    const handleNavigate = (e: any) => {
+      const canBack = typeof el.canGoBack === 'function' ? el.canGoBack() : false;
+      const canFwd = typeof el.canGoForward === 'function' ? el.canGoForward() : false;
+      onUpdateNavState?.(tab.id, e.url || el.getURL(), canBack, canFwd);
+    };
+
+    const handleTitleUpdated = (e: any) => {
+      if (e.title) onUpdateTitle(e.title, tab.id);
+    };
+
+    const handleFaviconUpdated = (e: any) => {
+      if (e.favicons && e.favicons.length > 0 && onUpdateFavicon) {
+        onUpdateFavicon(e.favicons[0], tab.id);
+      }
+    };
+
+    const handleDomReady = () => {
+      try {
+        const wId = typeof el.getWebContentsId === 'function' ? el.getWebContentsId() : null;
+        if (wId && typeof window !== 'undefined' && window.xyro?.tabAttach) {
+          window.xyro.tabAttach(tab.id, wId);
+        }
+        const currentUrl = typeof el.getURL === 'function' ? el.getURL() : tab.url;
+        const canBack = typeof el.canGoBack === 'function' ? el.canGoBack() : false;
+        const canFwd = typeof el.canGoForward === 'function' ? el.canGoForward() : false;
+        onUpdateNavState?.(tab.id, currentUrl, canBack, canFwd);
+      } catch {}
+    };
+
+    el.addEventListener('did-start-loading', handleStartLoading);
+    el.addEventListener('did-stop-loading', handleStopLoading);
+    el.addEventListener('did-navigate', handleNavigate);
+    el.addEventListener('did-navigate-in-page', handleNavigate);
+    el.addEventListener('page-title-updated', handleTitleUpdated);
+    el.addEventListener('page-favicon-updated', handleFaviconUpdated);
+    el.addEventListener('dom-ready', handleDomReady);
+
+    return () => {
+      el.removeEventListener('did-start-loading', handleStartLoading);
+      el.removeEventListener('did-stop-loading', handleStopLoading);
+      el.removeEventListener('did-navigate', handleNavigate);
+      el.removeEventListener('did-navigate-in-page', handleNavigate);
+      el.removeEventListener('page-title-updated', handleTitleUpdated);
+      el.removeEventListener('page-favicon-updated', handleFaviconUpdated);
+      el.removeEventListener('dom-ready', handleDomReady);
+      if (engine && typeof engine.unregisterWebview === 'function') {
+        engine.unregisterWebview(tab.id);
+      }
+    };
+  }, [tab.id, onUpdateLoading, onUpdateNavState, onUpdateTitle, onUpdateFavicon]);
+
+  const partition = tab.isIncognito ? `incognito-${tab.id}` : 'persist:xyro';
+
+  return (
+    // @ts-ignore
+    <webview
+      ref={webviewRef}
+      data-tab-id={tab.id}
+      src={initialUrlRef.current}
+      partition={partition}
+      allowpopups={true}
+      className={`chrome-iframe ${tab.autoDarkMode ? 'inverted-dark' : ''}`}
+      style={{
+        display: isActive ? 'flex' : 'none',
+        width: '100%',
+        height: '100%',
+      }}
+    />
+  );
+};
+
 export const Viewport: React.FC<ViewportProps> = ({
   tabs,
   activeTabId,
@@ -72,13 +169,11 @@ export const Viewport: React.FC<ViewportProps> = ({
   downloads,
   settings,
   onNavigate,
-  onRetry,
-  onNavigateInTab,
-  onOpenNewTab,
-  onUpdateTabTitle,
-  onUpdateTabFavicon,
-  onUpdateTabBlockedCount,
-  onUpdateTabLoading,
+  onUpdateTitle,
+  onUpdateFavicon,
+  onUpdateNavState,
+  onUpdateLoading,
+  onUpdateBlockedCount,
   onContextMenu,
   onKeyShortcut,
   onAddBookmark,
@@ -91,64 +186,32 @@ export const Viewport: React.FC<ViewportProps> = ({
   onOpenClearDialog,
   onExitReaderMode,
 }) => {
-  const isElectron = typeof window !== 'undefined' && (window as any).xyro?.platform === 'electron';
-  const [proxyErrors, setProxyErrors] = useState<Record<string, 'load' | 'embedded' | 'timeout'>>({});
-  const [directLoad, setDirectLoad] = useState<Record<string, string>>({});
-  const updateTabLoadingRef = useRef(onUpdateTabLoading);
+  const isElectron = typeof window !== 'undefined' && window.xyro?.platform === 'electron';
 
+  // Handle postMessage events in Lite Mode with strict event.source check
   useEffect(() => {
-    updateTabLoadingRef.current = onUpdateTabLoading;
-  }, [onUpdateTabLoading]);
+    if (isElectron) return;
 
-  useEffect(() => {
-    if (isElectron || !tab.isLoading || !/^https?:\/\//i.test(tab.url)) return;
-
-    const timeout = window.setTimeout(() => {
-      setProxyErrors((prev) => ({ ...prev, [tab.id]: 'timeout' }));
-      updateTabLoadingRef.current(tab.id, false);
-    }, 30000);
-
-    return () => window.clearTimeout(timeout);
-  }, [isElectron, tab.id, tab.isLoading, tab.url, tab.reloadKey]);
-
-  // Handle postMessage events with strict event.source check
-  useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
       const data = e.data;
       if (!data || !data.type) return;
 
-      // Validate event.source matches an active iframe
       const iframes = Array.from(document.querySelectorAll('iframe.chrome-iframe')) as HTMLIFrameElement[];
-      const sourceFrame = iframes.find((frame) => frame.contentWindow === e.source);
-      const sourceTabId = sourceFrame?.dataset.tabId;
-      if (!sourceFrame || !sourceTabId) return;
+      const isFromGuest = iframes.some((f) => f.contentWindow === e.source);
+      if (!isFromGuest) return;
 
-      const sourceTab = tabs.find((candidate) => candidate.id === sourceTabId);
-      if (data.type === 'xyro-app-embedded') {
-        setProxyErrors((prev) => ({ ...prev, [sourceTabId]: 'embedded' }));
-        onUpdateTabLoading(sourceTabId, false);
-        onUpdateTabTitle(sourceTabId, 'Browser page unavailable');
-      } else if (data.type === 'xyro-navigate' && data.url) {
-        onNavigateInTab(sourceTabId, data.url, data.replace === true);
+      if (data.type === 'xyro-navigate' && data.url) {
+        onNavigate(data.url);
       } else if (data.type === 'xyro-urlchange' && data.url) {
-        onNavigateInTab(sourceTabId, data.url, data.replace === true, true);
+        onNavigate(data.url);
       } else if (data.type === 'xyro-loaded') {
-        if (data.url) {
-          const normalizedDataUrl = data.url.replace(/\/$/, '');
-          const normalizedTabUrl = sourceTab?.url.replace(/\/$/, '');
-          if (normalizedTabUrl && normalizedDataUrl !== normalizedTabUrl) {
-            onNavigateInTab(sourceTabId, data.url, true, true);
-          }
-        }
-        if (data.title) onUpdateTabTitle(sourceTabId, data.title);
+        if (data.title) onUpdateTitle(data.title);
         if (typeof data.blocked === 'number') {
-          onUpdateTabBlockedCount(sourceTabId, data.blocked);
+          onUpdateBlockedCount(data.blocked);
         }
-        onUpdateTabLoading(sourceTabId, false);
       } else if (data.type === 'xyro-open' && data.url) {
-        if (sourceTabId === activeTabId) onOpenNewTab(data.url);
+        onNavigate(data.url);
       } else if (data.type === 'xyro-contextmenu') {
-        if (sourceTabId !== activeTabId) return;
         onContextMenu({
           x: data.x,
           y: data.y,
@@ -157,302 +220,161 @@ export const Viewport: React.FC<ViewportProps> = ({
           selectionText: data.selectionText,
         });
       } else if (data.type === 'xyro-keydown') {
-        if (sourceTabId !== activeTabId) return;
-        onKeyShortcut(data.key, data.ctrlKey || data.metaKey, data.shiftKey, data.altKey);
+        onKeyShortcut(data.key, data.ctrlKey || data.metaKey, data.shiftKey);
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [
-    activeTabId,
-    tabs,
-    onNavigateInTab,
-    onOpenNewTab,
-    onUpdateTabTitle,
-    onUpdateTabBlockedCount,
-    onUpdateTabLoading,
-    onContextMenu,
-    onKeyShortcut,
-  ]);
+  }, [isElectron, onNavigate, onUpdateTitle, onUpdateBlockedCount, onContextMenu, onKeyShortcut]);
 
-  useEffect(() => {
-    if (!isElectron) return;
-
-    const listeners: Array<() => void> = [];
-    const webviews = Array.from(
-      document.querySelectorAll<HTMLElement>('webview.chrome-iframe')
-    );
-
-    for (const webview of webviews) {
-      const tabId = webview.dataset.tabId;
-      if (!tabId) continue;
-
-      const onNavigate = (event: Event) => {
-        const url = (event as Event & { url?: string }).url;
-        if (url) onNavigateInTab(tabId, url, false, true);
-      };
-      const onTitle = (event: Event) => {
-        const title = (event as Event & { title?: string }).title;
-        if (title) onUpdateTabTitle(tabId, title);
-      };
-      const onFavicon = (event: Event) => {
-        const favicons = (event as Event & { favicons?: string[] }).favicons;
-        if (favicons?.[0]) onUpdateTabFavicon(tabId, favicons[0]);
-      };
-      const onStartLoading = () => onUpdateTabLoading(tabId, true);
-      const onStopLoading = () => onUpdateTabLoading(tabId, false);
-
-      webview.addEventListener('did-navigate', onNavigate);
-      webview.addEventListener('did-navigate-in-page', onNavigate);
-      webview.addEventListener('page-title-updated', onTitle);
-      webview.addEventListener('page-favicon-updated', onFavicon);
-      webview.addEventListener('did-start-loading', onStartLoading);
-      webview.addEventListener('did-stop-loading', onStopLoading);
-
-      listeners.push(() => {
-        webview.removeEventListener('did-navigate', onNavigate);
-        webview.removeEventListener('did-navigate-in-page', onNavigate);
-        webview.removeEventListener('page-title-updated', onTitle);
-        webview.removeEventListener('page-favicon-updated', onFavicon);
-        webview.removeEventListener('did-start-loading', onStartLoading);
-        webview.removeEventListener('did-stop-loading', onStopLoading);
-      });
-    }
-
-    return () => listeners.forEach((removeListeners) => removeListeners());
-  }, [
-    isElectron,
-    tabs,
-    onNavigateInTab,
-    onUpdateTabTitle,
-    onUpdateTabFavicon,
-    onUpdateTabLoading,
-  ]);
-
-  let internalContent: React.ReactNode | null = null;
-
+  // Reader mode takes precedence if active for current tab
   if (tab.isReaderMode && tab.readerContent) {
-    internalContent = <ReaderView article={tab.readerContent} onClose={onExitReaderMode} />;
-  } else if (tab.url.startsWith('view-source:')) {
-    internalContent = <SourceViewer url={tab.url} />;
-  } else if (tab.url === 'chrome://newtab' || tab.url === 'xyro://newtab') {
-    internalContent = <NewTabPage currentEngine={currentEngine} onNavigate={onNavigate} />;
-  } else if (tab.url.startsWith('chrome://search') || tab.url.startsWith('xyro://search')) {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading reader view...</div>}>
+        <ReaderView article={tab.readerContent} onClose={onExitReaderMode} />
+      </Suspense>
+    );
+  }
+
+  // View-source mode
+  if (tab.url.startsWith('view-source:')) {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading source...</div>}>
+        <SourceViewer url={tab.url} />
+      </Suspense>
+    );
+  }
+
+  // Internal Pages (xyro:// and chrome:// aliases)
+  const isInternal = tab.url.startsWith('chrome://') || tab.url.startsWith('xyro://');
+
+  if (tab.url === 'chrome://newtab' || tab.url === 'xyro://newtab') {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading New Tab...</div>}>
+        <NewTabPage currentEngine={currentEngine} onNavigate={onNavigate} />
+      </Suspense>
+    );
+  }
+
+  if (tab.url.startsWith('chrome://search') || tab.url.startsWith('xyro://search')) {
     let query = '';
     try {
       const params = new URLSearchParams(tab.url.split('?')[1]);
       query = params.get('q') || '';
     } catch {}
-    internalContent = <SearchResults query={query} currentEngine={currentEngine} onNavigate={onNavigate} />;
-  } else if (tab.url === 'chrome://history' || tab.url === 'xyro://history') {
-    internalContent = (
-      <HistoryPage
-        history={history}
-        onNavigate={onNavigate}
-        onDeleteItem={onDeleteHistoryItem}
-        onClearHistory={onClearHistory}
-        onOpenClearDialog={onOpenClearDialog}
-      />
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Searching...</div>}>
+        <SearchResults query={query} currentEngine={currentEngine} onNavigate={onNavigate} />
+      </Suspense>
     );
-  } else if (tab.url === 'chrome://bookmarks' || tab.url === 'xyro://bookmarks') {
-    internalContent = (
-      <BookmarksPage
-        bookmarks={bookmarks}
-        onNavigate={onNavigate}
-        onAddBookmark={onAddBookmark}
-        onDeleteBookmark={onDeleteBookmark}
-        onImportBookmarks={onImportBookmarks}
-      />
-    );
-  } else if (tab.url === 'chrome://downloads' || tab.url === 'xyro://downloads') {
-    internalContent = (
-      <DownloadsPage
-        downloads={downloads}
-        onClearDownloads={onClearDownloads}
-      />
-    );
-  } else if (tab.url === 'chrome://settings' || tab.url === 'xyro://settings') {
-    internalContent = (
-      <SettingsPage
-        settings={settings}
-        onUpdateSettings={onUpdateSettings}
-        onOpenClearDialog={onOpenClearDialog}
-      />
-    );
-  } else if (tab.url === 'chrome://about' || tab.url === 'xyro://about') {
-    internalContent = <AboutPage />;
   }
 
-  const isInternal = tab.url.startsWith('chrome://') || tab.url.startsWith('xyro://');
+  if (tab.url === 'chrome://history' || tab.url === 'xyro://history') {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading History...</div>}>
+        <HistoryPage
+          history={history}
+          onNavigate={onNavigate}
+          onDeleteItem={onDeleteHistoryItem}
+          onClearHistory={onClearHistory}
+          onOpenClearDialog={onOpenClearDialog}
+        />
+      </Suspense>
+    );
+  }
+
+  if (tab.url === 'chrome://bookmarks' || tab.url === 'xyro://bookmarks') {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading Bookmarks...</div>}>
+        <BookmarksPage
+          bookmarks={bookmarks}
+          onNavigate={onNavigate}
+          onAddBookmark={onAddBookmark}
+          onDeleteBookmark={onDeleteBookmark}
+          onImportBookmarks={onImportBookmarks}
+        />
+      </Suspense>
+    );
+  }
+
+  if (tab.url === 'chrome://downloads' || tab.url === 'xyro://downloads') {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading Downloads...</div>}>
+        <DownloadsPage downloads={downloads} onClearDownloads={onClearDownloads} />
+      </Suspense>
+    );
+  }
+
+  if (tab.url === 'chrome://download' || tab.url === 'xyro://download') {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading Downloads...</div>}>
+        <DownloadPortal onLaunchWeb={() => onNavigate('xyro://newtab')} />
+      </Suspense>
+    );
+  }
+
+  if (tab.url === 'chrome://settings' || tab.url === 'xyro://settings') {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading Settings...</div>}>
+        <SettingsPage settings={settings} onUpdateSettings={onUpdateSettings} onOpenClearDialog={onOpenClearDialog} />
+      </Suspense>
+    );
+  }
+
+  if (tab.url === 'chrome://about' || tab.url === 'xyro://about') {
+    return (
+      <Suspense fallback={<div className="p-4 text-sm text-neutral-400">Loading About...</div>}>
+        <AboutPage />
+      </Suspense>
+    );
+  }
+
+  // Render webview or iframe for all web tabs so tabs remain mounted without reload
   const webTabs = tabs.filter(
     (t) => !t.url.startsWith('chrome://') && !t.url.startsWith('xyro://') && !t.url.startsWith('view-source:')
   );
 
   return (
-    <div className="chrome-viewport" onContextMenu={(e) => e.preventDefault()}>
+    <div className="chrome-viewport xyro-viewport" onContextMenu={(e) => e.preventDefault()}>
       {webTabs.map((t) => {
-        const isActive = t.id === activeTabId && !isInternal && !tab.isReaderMode;
+        const isActive = t.id === activeTabId && !isInternal;
         const zoomScale = t.zoom / 100;
-        const error = proxyErrors[t.id];
+        const proxySrc = toProxyUrl(t.url);
 
         if (isElectron) {
-          // Render Chromium <webview> in desktop mode
           return (
-            // @ts-ignore
-            <webview
-              key={`${t.id}:${t.reloadKey || 0}`}
-              data-tab-id={t.id}
-              onDidAttach={(event: any) => {
-                const guestId = event.currentTarget?.getWebContentsId?.();
-                (window as any).xyro?.createTab?.(t.id, t.url, t.isIncognito);
-                if (guestId) (window as any).xyro?.attachTab?.(t.id, guestId);
-                (window as any).xyro?.setActive?.(t.id);
-              }}
-              src={t.contentUrl || t.url}
-              allowpopups="true"
-              partition={t.isIncognito ? `incognito-${t.id}` : 'persist:xyro'}
-              webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
-              className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
-              style={{
-                display: isActive ? 'flex' : 'none',
-                width: '100%',
-                height: '100%',
-              }}
+            <WebviewGuestTab
+              key={t.id}
+              tab={t}
+              isActive={isActive}
+              onUpdateTitle={onUpdateTitle}
+              onUpdateFavicon={onUpdateFavicon}
+              onUpdateNavState={onUpdateNavState}
+              onUpdateLoading={onUpdateLoading}
             />
           );
         }
 
-// Render Sandboxed IFrame in Lite Mode (key={t.id} prevents reloading on switch)
+        // Render Sandboxed IFrame in Lite Mode
         return (
-          <React.Fragment key={t.id}>
-            <iframe
-              key={`${t.id}:${t.reloadKey || 0}`}
-              data-tab-id={t.id}
-              src={directLoad[t.id] === (t.contentUrl || t.url) ? t.url : toProxyUrl(t.contentUrl || t.url, t.proxySessionId, settings.shieldsEnabled)}
-              title={t.title}
-              className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
-              sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
-              onLoad={() => {
-                setProxyErrors((prev) => {
-                  if (!prev[t.id]) return prev;
-                  const next = { ...prev };
-                  delete next[t.id];
-                  return next;
-                });
-                onUpdateTabLoading(t.id, false);
-                if (t.title === 'Loading...' && directLoad[t.id] !== (t.contentUrl || t.url)) {
-                  try {
-                    onUpdateTabTitle(t.id, new URL(t.url).hostname);
-                  } catch {
-                    onUpdateTabTitle(t.id, 'Web page');
-                  }
-                }
-              }}
-              onError={() => {
-                setProxyErrors((prev) => ({ ...prev, [t.id]: 'load' }));
-                onUpdateTabLoading(t.id, false);
-              }}
-              style={{
-                display: isActive ? 'block' : 'none',
-                transform: zoomScale !== 1 ? `scale(${zoomScale})` : undefined,
-                transformOrigin: '0 0',
-width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
+          <iframe
+            key={t.id}
+            data-tab-id={t.id}
+            src={proxySrc}
+            title={t.title}
+            className={`chrome-iframe ${t.autoDarkMode ? 'inverted-dark' : ''}`}
+            sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+            style={{
+              display: isActive ? 'block' : 'none',
+              transform: zoomScale !== 1 ? `scale(${zoomScale})` : undefined,
+              transformOrigin: '0 0',
+              width: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
               height: zoomScale !== 1 ? `${100 / zoomScale}%` : '100%',
-              }}
-            />
-            {error && isActive && (
-              <div
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  zIndex: 50,
-                  backgroundColor: 'var(--chrome-toolbar-bg)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 12,
-                  padding: 32,
-                  color: 'var(--chrome-text-primary)',
-                }}
-              >
-                <h3 style={{ fontSize: 16, fontWeight: 500 }}>
-                  {error === 'embedded'
-                    ? 'This browser page cannot be displayed inside XyroBrowse'
-                    : error === 'timeout'
-                    ? 'This page is taking too long to load'
-                    : 'Unable to load this page'}
-                </h3>
-                <p style={{ fontSize: 13, color: 'var(--chrome-text-secondary)', textAlign: 'center', maxWidth: 400 }}>
-                  {error === 'embedded'
-                    ? 'The hosted proxy returned the XyroBrowse app instead of the requested website. Check the Vercel API deployment, then retry.'
-                    : error === 'timeout'
-                    ? 'The page did not respond within 30 seconds. Check your connection or try again.'
-                    : 'The page could not be loaded through the proxy. It may block embedded browsing or the proxy may be unavailable.'}
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
-                  {error !== 'embedded' && (
-                    <button
-                      onClick={() => {
-                        setDirectLoad((prev) => ({ ...prev, [t.id]: t.contentUrl || t.url }));
-                        onNavigate(t.contentUrl || t.url);
-                      }}
-                      style={{
-                        backgroundColor: 'var(--chrome-button-hover)',
-                        color: 'var(--chrome-text-primary)',
-                        border: '1px solid var(--chrome-border-subtle)',
-                        borderRadius: 6,
-                        padding: '8px 16px',
-                        fontSize: 13,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Open Directly
-                    </button>
-                  )}
-                  <button
-                    onClick={onRetry}
-                    style={{
-                      backgroundColor: 'var(--chrome-accent-blue)',
-                      color: '#202124',
-                      border: 'none',
-                      borderRadius: 6,
-                      padding: '8px 16px',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Retry
-                  </button>
-                  {error === 'embedded' && (
-                    <button
-                      onClick={() => onOpenNewTab('chrome://newtab')}
-                      style={{
-                        backgroundColor: 'var(--chrome-button-hover)',
-                        color: 'var(--chrome-text-primary)',
-                        border: '1px solid var(--chrome-border-subtle)',
-                        borderRadius: 6,
-                        padding: '8px 16px',
-                        fontSize: 13,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Open new tab
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </React.Fragment>
+            }}
+          />
         );
       })}
-      {internalContent && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
-          {internalContent}
-        </div>
-      )}
     </div>
   );
 };

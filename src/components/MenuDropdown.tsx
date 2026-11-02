@@ -34,6 +34,7 @@ interface MenuDropdownProps {
   onOpenClearDialog: () => void;
   onOpenSettings: () => void;
   onOpenAbout: () => void;
+  onOpenDownloadPortal?: () => void;
   onClose: () => void;
 }
 
@@ -55,6 +56,7 @@ export const MenuDropdown: React.FC<MenuDropdownProps> = ({
   onOpenClearDialog,
   onOpenSettings,
   onOpenAbout,
+  onOpenDownloadPortal,
   onClose,
 }) => {
   return (
@@ -232,6 +234,21 @@ export const MenuDropdown: React.FC<MenuDropdownProps> = ({
         </button>
 
         <div className="chrome-menu-divider" />
+
+        {onOpenDownloadPortal && (
+          <button
+            className="chrome-menu-item"
+            onClick={() => {
+              onOpenDownloadPortal();
+              onClose();
+            }}
+          >
+            <Download size={16} style={{ color: 'var(--xyro-accent, #8ab4f8)' }} />
+            <span style={{ color: 'var(--xyro-accent, #8ab4f8)', fontWeight: 500 }}>
+              Download Desktop App
+            </span>
+          </button>
+        )}
 
         <button
           className="chrome-menu-item"

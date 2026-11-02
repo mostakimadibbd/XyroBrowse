@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserSettings } from '../types';
-import { Settings, Search, Palette, Shield, Trash2, Smartphone } from 'lucide-react';
+import { Settings, Search, Palette, Shield, Smartphone, Trash2 } from 'lucide-react';
 import { SEARCH_ENGINES } from '../lib/url';
 
 interface SettingsPageProps {
@@ -16,41 +16,40 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   return (
     <div
-      className="chrome-settings-page"
       style={{
         width: '100%',
         height: '100%',
         overflowY: 'auto',
-        backgroundColor: 'var(--chrome-viewport-bg)',
+        backgroundColor: 'var(--xyro-viewport-bg, #202124)',
         padding: '32px 48px',
-        color: 'var(--chrome-text-primary)',
+        color: 'var(--xyro-text-primary, #e8eaed)',
       }}
     >
       <div style={{ maxWidth: 840, margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-          <Settings size={24} style={{ color: 'var(--chrome-accent-blue)' }} />
-          <h1 style={{ fontSize: 22, fontWeight: 500 }}>Settings</h1>
+          <Settings size={24} style={{ color: 'var(--xyro-accent-pink, #ec4899)' }} />
+          <h1 style={{ fontSize: 22, fontWeight: 600 }}>Settings</h1>
         </div>
 
         {/* 1. Search Engine */}
         <div
           style={{
-            backgroundColor: 'var(--chrome-toolbar-bg)',
-            border: '1px solid var(--chrome-border-subtle)',
+            backgroundColor: 'var(--xyro-toolbar-bg, #2b2d31)',
+            border: '1px solid var(--xyro-border-subtle, #3c4043)',
             borderRadius: 8,
             padding: 20,
             marginBottom: 20,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <Search size={18} style={{ color: 'var(--chrome-accent-blue)' }} />
-            <h2 style={{ fontSize: 16, fontWeight: 500 }}>Search Engine</h2>
+            <Search size={18} style={{ color: 'var(--xyro-accent-pink, #ec4899)' }} />
+            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Search Engine</h2>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontWeight: 500, fontSize: 13 }}>Search engine used in the address bar</div>
-              <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)', marginTop: 2 }}>
                 Choose the default search engine for address bar queries
               </div>
             </div>
@@ -60,9 +59,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 onUpdateSettings({ ...settings, defaultSearchEngine: e.target.value })
               }
               style={{
-                backgroundColor: 'var(--chrome-omnibox-bg)',
-                color: 'var(--chrome-text-primary)',
-                border: '1px solid var(--chrome-border-subtle)',
+                backgroundColor: 'var(--xyro-omnibox-bg, #1e1f22)',
+                color: 'var(--xyro-text-primary, #e8eaed)',
+                border: '1px solid var(--xyro-border-subtle, #3c4043)',
                 borderRadius: 4,
                 padding: '6px 12px',
                 fontSize: 13,
@@ -80,16 +79,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* 2. Appearance */}
         <div
           style={{
-            backgroundColor: 'var(--chrome-toolbar-bg)',
-            border: '1px solid var(--chrome-border-subtle)',
+            backgroundColor: 'var(--xyro-toolbar-bg, #2b2d31)',
+            border: '1px solid var(--xyro-border-subtle, #3c4043)',
             borderRadius: 8,
             padding: 20,
             marginBottom: 20,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <Palette size={18} style={{ color: 'var(--chrome-accent-blue)' }} />
-            <h2 style={{ fontSize: 16, fontWeight: 500 }}>Appearance</h2>
+            <Palette size={18} style={{ color: 'var(--xyro-accent-pink, #ec4899)' }} />
+            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Appearance</h2>
           </div>
 
           <div
@@ -98,13 +97,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               justifyContent: 'space-between',
               alignItems: 'center',
               paddingBottom: 14,
-              borderBottom: '1px solid var(--chrome-border-subtle)',
+              borderBottom: '1px solid var(--xyro-border-subtle, #3c4043)',
             }}
           >
             <div>
               <div style={{ fontWeight: 500, fontSize: 13 }}>Theme</div>
-              <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
-                Choose a theme or follow your device appearance
+              <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)', marginTop: 2 }}>
+                Switch between Dark Mode and Light Mode
               </div>
             </div>
             <select
@@ -113,9 +112,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 onUpdateSettings({ ...settings, theme: e.target.value as 'dark' | 'light' | 'system' })
               }
               style={{
-                backgroundColor: 'var(--chrome-omnibox-bg)',
-                color: 'var(--chrome-text-primary)',
-                border: '1px solid var(--chrome-border-subtle)',
+                backgroundColor: 'var(--xyro-omnibox-bg, #1e1f22)',
+                color: 'var(--xyro-text-primary, #e8eaed)',
+                border: '1px solid var(--xyro-border-subtle, #3c4043)',
                 borderRadius: 4,
                 padding: '6px 12px',
                 fontSize: 13,
@@ -123,7 +122,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             >
               <option value="dark">Dark</option>
               <option value="light">Light</option>
-              <option value="system">System default</option>
             </select>
           </div>
 
@@ -134,44 +132,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               alignItems: 'center',
               paddingTop: 14,
               paddingBottom: 14,
-              borderBottom: '1px solid var(--chrome-border-subtle)',
-              gap: 20,
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 500, fontSize: 13 }}>Home page</div>
-              <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
-                Open this page when you select Home
-              </div>
-            </div>
-            <input
-              type="text"
-              value={settings.homePage}
-              onChange={(e) => onUpdateSettings({ ...settings, homePage: e.target.value })}
-              aria-label="Home page URL"
-              style={{
-                width: 'min(320px, 55%)',
-                backgroundColor: 'var(--chrome-omnibox-bg)',
-                color: 'var(--chrome-text-primary)',
-                border: '1px solid var(--chrome-border-subtle)',
-                borderRadius: 4,
-                padding: '6px 10px',
-                fontSize: 13,
-              }}
-            />
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              paddingTop: 14,
+              borderBottom: '1px solid var(--xyro-border-subtle, #3c4043)',
             }}
           >
             <div>
               <div style={{ fontWeight: 500, fontSize: 13 }}>Show bookmarks bar</div>
-              <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)', marginTop: 2 }}>
                 Display the bookmarks bar below the address bar
               </div>
             </div>
@@ -184,21 +150,45 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               style={{ width: 18, height: 18, cursor: 'pointer' }}
             />
           </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingTop: 14,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 13 }}>Vertical tabs</div>
+              <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)', marginTop: 2 }}>
+                Display tabs in a vertical sidebar (available on screens 1200px and wider)
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={Boolean(settings.verticalTabs)}
+              onChange={(e) =>
+                onUpdateSettings({ ...settings, verticalTabs: e.target.checked })
+              }
+              style={{ width: 18, height: 18, cursor: 'pointer' }}
+            />
+          </div>
         </div>
 
         {/* 3. Privacy and Security */}
         <div
           style={{
-            backgroundColor: 'var(--chrome-toolbar-bg)',
-            border: '1px solid var(--chrome-border-subtle)',
+            backgroundColor: 'var(--xyro-toolbar-bg, #2b2d31)',
+            border: '1px solid var(--xyro-border-subtle, #3c4043)',
             borderRadius: 8,
             padding: 20,
             marginBottom: 20,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <Shield size={18} style={{ color: 'var(--chrome-accent-blue)' }} />
-            <h2 style={{ fontSize: 16, fontWeight: 500 }}>Privacy and Security</h2>
+            <Shield size={18} style={{ color: 'var(--xyro-accent-pink, #ec4899)' }} />
+            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Privacy and Security</h2>
           </div>
 
           <div
@@ -207,13 +197,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               justifyContent: 'space-between',
               alignItems: 'center',
               paddingBottom: 14,
-              borderBottom: '1px solid var(--chrome-border-subtle)',
+              borderBottom: '1px solid var(--xyro-border-subtle, #3c4043)',
             }}
           >
             <div>
               <div style={{ fontWeight: 500, fontSize: 13 }}>Privacy Shields</div>
-              <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
-                Block ads and cross-site tracking scripts
+              <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)', marginTop: 2 }}>
+                Block ads, trackers, and strip tracking parameters from URLs
               </div>
             </div>
             <input
@@ -236,7 +226,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           >
             <div>
               <div style={{ fontWeight: 500, fontSize: 13 }}>Clear browsing data</div>
-              <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)', marginTop: 2 }}>
                 Clear history, cookies, and cache
               </div>
             </div>
@@ -248,8 +238,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 gap: 6,
                 padding: '6px 12px',
                 backgroundColor: 'transparent',
-                border: '1px solid var(--chrome-border-subtle)',
-                color: 'var(--chrome-danger)',
+                border: '1px solid var(--xyro-border-subtle, #3c4043)',
+                color: 'var(--xyro-danger, #f28b82)',
                 borderRadius: 4,
                 cursor: 'pointer',
                 fontSize: 13,
@@ -264,21 +254,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* 4. Mobile Ergonomics */}
         <div
           style={{
-            backgroundColor: 'var(--chrome-toolbar-bg)',
-            border: '1px solid var(--chrome-border-subtle)',
+            backgroundColor: 'var(--xyro-toolbar-bg, #2b2d31)',
+            border: '1px solid var(--xyro-border-subtle, #3c4043)',
             borderRadius: 8,
             padding: 20,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <Smartphone size={18} style={{ color: 'var(--chrome-accent-blue)' }} />
-            <h2 style={{ fontSize: 16, fontWeight: 500 }}>Mobile Layout</h2>
+            <Smartphone size={18} style={{ color: 'var(--xyro-accent-pink, #ec4899)' }} />
+            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Mobile Layout</h2>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontWeight: 500, fontSize: 13 }}>Address Bar Position</div>
-              <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)', marginTop: 2 }}>
                 Place navigation bar at the bottom for easy thumb access on mobile
               </div>
             </div>
@@ -291,9 +281,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 })
               }
               style={{
-                backgroundColor: 'var(--chrome-omnibox-bg)',
-                color: 'var(--chrome-text-primary)',
-                border: '1px solid var(--chrome-border-subtle)',
+                backgroundColor: 'var(--xyro-omnibox-bg, #1e1f22)',
+                color: 'var(--xyro-text-primary, #e8eaed)',
+                border: '1px solid var(--xyro-border-subtle, #3c4043)',
                 borderRadius: 4,
                 padding: '6px 12px',
                 fontSize: 13,

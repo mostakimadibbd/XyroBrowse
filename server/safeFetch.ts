@@ -226,8 +226,10 @@ export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}):
     // Resolve DNS once and check IP safety
     const pinnedIp = await validateHost(parsed.hostname);
 
-    // Create DNS rebinding protected agents pinned to the validated IP
+    // Create DNS rebinding protected agents pinned to the validated IP with connection pooling
     const agentOptions = {
+      keepAlive: true,
+      maxSockets: 64,
       lookup: (_hostname: string, _opts: any, cb: (err: Error | null, address: string, family: number) => void) => {
         const family = net.isIPv6(pinnedIp) ? 6 : 4;
         cb(null, pinnedIp, family);

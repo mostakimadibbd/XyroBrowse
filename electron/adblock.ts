@@ -1,18 +1,34 @@
-import { app, Session, WebContents } from 'electron';
+import { app, Session } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import fetch from 'cross-fetch';
 import { ElectronBlocker } from '@ghostery/adblocker-electron';
-import { TRACKING_PARAMS, stripTrackingParams } from '../server/blocklist.js';
+import { stripTrackingParams } from '../server/blocklist.js';
 
 export class DesktopAdblocker {
   private blocker: ElectronBlocker | null = null;
-  private sessions = new Set<Session>();
   private allowlist = new Set<string>();
-  private tabCounts = new Map<number, number>();
-  private enabled = true;
-  private onBlocked?: (webContentsId: number, count: number) => void;
-  private blockedRequestListenerAttached = false;
+  private tabCounts = new Map<string, number>();
+  private webContentsToTabId = new Map<number, string>();
+  private onBlockedCallback?: (tabId: string, count: number) => void;
+  private attachedSessions = new WeakSet<Session>();
+
+  public setOnBlocked(cb: (tabId: string, count: number) => void): void {
+    this.onBlockedCallback = cb;
+  }
+
+  public setWebContentsTab(webContentsId: number, tabId: string): void {
+    this.webContentsToTabId.set(webContentsId, tabId);
+  }
+
+  public removeTab(tabId: string): void {
+    this.tabCounts.delete(tabId);
+    for (const [wId, tId] of this.webContentsToTabId.entries()) {
+      if (tId === tabId) {
+        this.webContentsToTabId.delete(wId);
+      }
+    }
+  }
 
   public async initialize(): Promise<void> {
     const cacheDir = path.join(app.getPath('userData'), 'adblock');
@@ -33,51 +49,57 @@ export class DesktopAdblocker {
         this.blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
       } catch (e) {
         console.error('Failed to initialize adblocker:', e);
-      }
-    }
-  }
-
-  public attachToSession(session: Session, onBlocked?: (webContentsId: number, count: number) => void): void {
-    if (this.sessions.has(session)) return;
-    this.sessions.add(session);
-    if (this.blocker) {
-      if (this.enabled) this.blocker.enableBlockingInSession(session);
-
-      if (onBlocked) this.onBlocked = onBlocked;
-      if (!this.blockedRequestListenerAttached) {
-        this.blocker.on('request-blocked', (request: any) => {
-          const tabId = request.tabId;
-          if (typeof tabId === 'number') {
-            const current = (this.tabCounts.get(tabId) || 0) + 1;
-            this.tabCounts.set(tabId, current);
-            this.onBlocked?.(tabId, current);
-          }
-        });
-        this.blockedRequestListenerAttached = true;
+        return;
       }
     }
 
-    // Strip tracking parameters on top-level navigation
-    session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-      if (this.enabled && details.resourceType === 'mainFrame') {
+    if (!this.blocker) return;
+
+    // Register request-blocked ONCE on blocker
+    this.blocker.on('request-blocked', (request: any) => {
+      const wId = request.tabId;
+      const tabId = typeof wId === 'number' ? (this.webContentsToTabId.get(wId) || String(wId)) : 'default';
+      const current = (this.tabCounts.get(tabId) || 0) + 1;
+      this.tabCounts.set(tabId, current);
+      if (this.onBlockedCallback) {
+        this.onBlockedCallback(tabId, current);
+      }
+    });
+
+    // Wrap blocker's onBeforeRequest to enforce tracking param stripping & allowlist
+    const originalOnBeforeRequest = this.blocker.onBeforeRequest;
+    this.blocker.onBeforeRequest = (details, callback) => {
+      // 1. Strip tracking params on mainFrame top-level navigation
+      if (details.resourceType === 'mainFrame') {
         const cleaned = stripTrackingParams(details.url);
         if (cleaned !== details.url) {
           callback({ redirectURL: cleaned });
           return;
         }
       }
-      callback({});
-    });
+
+      // 2. Check allowlist for top-level origin or sourceUrl
+      const checkUrl = details.referrer || details.url;
+      if (this.isAllowlisted(checkUrl)) {
+        callback({});
+        return;
+      }
+
+      // 3. Delegate to original ghostery onBeforeRequest
+      originalOnBeforeRequest(details, callback);
+    };
   }
 
-  public setEnabled(enabled: boolean): void {
-    if (this.enabled === enabled) return;
-    this.enabled = enabled;
-    if (!this.blocker) return;
+  public attachToSession(session: Session): void {
+    if (this.attachedSessions.has(session)) return;
+    this.attachedSessions.add(session);
 
-    for (const browserSession of this.sessions) {
-      if (enabled) this.blocker.enableBlockingInSession(browserSession);
-      else this.blocker.disableBlockingInSession(browserSession);
+    if (this.blocker) {
+      try {
+        this.blocker.enableBlockingInSession(session);
+      } catch (err) {
+        console.warn('Failed to enable blocking in session:', err);
+      }
     }
   }
 
@@ -101,11 +123,15 @@ export class DesktopAdblocker {
     } catch {}
   }
 
-  public getBlockedCount(webContentsId: number): number {
-    return this.tabCounts.get(webContentsId) || 0;
+  public loadAllowlist(list: string[]): void {
+    this.allowlist = new Set(list);
   }
 
-  public resetCount(webContentsId: number): void {
-    this.tabCounts.set(webContentsId, 0);
+  public getBlockedCount(tabId: string): number {
+    return this.tabCounts.get(tabId) || 0;
+  }
+
+  public resetCount(tabId: string): void {
+    this.tabCounts.set(tabId, 0);
   }
 }

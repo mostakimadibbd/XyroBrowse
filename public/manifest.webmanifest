@@ -1,16 +1,26 @@
 {
   "name": "XyroBrowse",
   "short_name": "XyroBrowse",
+  "description": "Fast, privacy-focused Chromium browser with built-in ad blocking and Lite web mode.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#202124",
-  "theme_color": "#2b2d31",
+  "background_color": "#18191c",
+  "theme_color": "#1e1f22",
   "icons": [
     {
-      "src": "/xyro-icon.svg",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo-mark.svg",
       "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "type": "image/svg+xml"
     }
   ]
 }

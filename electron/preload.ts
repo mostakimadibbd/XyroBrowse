@@ -1,63 +1,53 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('xyro', {
-  platform: 'electron',
-  createTab: (tabId: string, url: string, isIncognito = false) => {
-    ipcRenderer.send('xyro-tab-create', { tabId, url, isIncognito });
+  platform: 'electron' as const,
+  versions: {
+    node: process.versions.node,
+    chrome: process.versions.chrome,
+    electron: process.versions.electron,
   },
-  attachTab: (tabId: string, webContentsId: number) => {
+  tabAttach: (tabId: string, webContentsId: number) => {
     ipcRenderer.send('xyro-tab-attach', { tabId, webContentsId });
   },
-  destroyTab: (tabId: string) => {
+  tabDestroy: (tabId: string) => {
     ipcRenderer.send('xyro-tab-destroy', { tabId });
   },
-  navigate: (tabId: string, url: string) => {
-    ipcRenderer.send('xyro-tab-navigate', { tabId, url });
-  },
-  back: (tabId: string) => {
-    ipcRenderer.send('xyro-tab-back', { tabId });
-  },
-  forward: (tabId: string) => {
-    ipcRenderer.send('xyro-tab-forward', { tabId });
-  },
-  reload: (tabId: string, hard = false) => {
-    ipcRenderer.send('xyro-tab-reload', { tabId, hard });
-  },
-  stop: (tabId: string) => {
-    ipcRenderer.send('xyro-tab-stop', { tabId });
-  },
-  setActive: (tabId: string) => {
-    ipcRenderer.send('xyro-tab-set-active', { tabId });
-  },
-  setZoom: (tabId: string, factor: number) => {
-    ipcRenderer.send('xyro-tab-zoom', { tabId, factor });
-  },
-  find: (tabId: string, text: string, forward = true) => {
-    ipcRenderer.send('xyro-tab-find', { tabId, text, forward });
-  },
-  stopFind: (tabId: string) => {
-    ipcRenderer.send('xyro-tab-stop-find', { tabId });
-  },
-  print: (tabId: string) => {
-    ipcRenderer.send('xyro-tab-print', { tabId });
-  },
-  openDevTools: (tabId: string) => {
-    ipcRenderer.send('xyro-tab-devtools', { tabId });
-  },
-  getSuggestions: (query: string, engine = 'google') => {
+  getSuggestions: (query: string, engine = 'google'): Promise<string[]> => {
     return ipcRenderer.invoke('xyro-search-suggest', { query, engine });
   },
-  clearBrowsingData: (options: { clearCookies: boolean; clearCache: boolean }) =>
-    ipcRenderer.invoke('xyro-clear-browsing-data', options),
-  clearIncognitoSession: (tabId: string) =>
-    ipcRenderer.invoke('xyro-clear-incognito-session', { partition: `incognito-${tabId}` }),
-  setShieldsEnabled: (enabled: boolean) => ipcRenderer.send('xyro-set-shields-enabled', enabled),
+  respondPermission: (requestId: string, allowed: boolean) => {
+    ipcRenderer.send('xyro-permission-response', { requestId, allowed });
+  },
+  pauseDownload: (id: string) => {
+    ipcRenderer.send('xyro-download-pause', { id });
+  },
+  resumeDownload: (id: string) => {
+    ipcRenderer.send('xyro-download-resume', { id });
+  },
+  cancelDownload: (id: string) => {
+    ipcRenderer.send('xyro-download-cancel', { id });
+  },
+  openDownloadFile: (id: string) => {
+    ipcRenderer.send('xyro-download-open', { id });
+  },
+  showDownloadInFolder: (id: string) => {
+    ipcRenderer.send('xyro-download-show', { id });
+  },
   on: (channel: string, callback: (...args: any[]) => void) => {
-    const validChannels = ['engine-event', 'download-started', 'download-progress', 'download-completed'];
+    const validChannels = [
+      'engine-event',
+      'download-started',
+      'download-progress',
+      'download-completed',
+      'permission-request',
+    ];
     if (validChannels.includes(channel)) {
       const listener = (_evt: any, ...args: any[]) => callback(...args);
       ipcRenderer.on(channel, listener);
-      return () => ipcRenderer.removeListener(channel, listener);
+      return () => {
+        ipcRenderer.removeListener(channel, listener);
+      };
     }
     return () => {};
   },

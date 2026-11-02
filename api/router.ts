@@ -1,14 +1,17 @@
 import { Hono } from 'hono';
-import { stream } from 'hono/streaming';
+import { handle } from 'hono/vercel';
+import fs from 'fs';
+import path from 'path';
+import { performSearch } from '../server/search.js';
+import { searchRateLimiter, readerRateLimiter, documentNavRateLimiter } from '../server/rateLimit.js';
+import { extractArticle } from '../server/reader.js';
 import { safeFetch, SsfError } from '../server/safeFetch.js';
 import { rewriteHtml, rewriteCss, toProxyUrl } from '../server/rewriteHtml.js';
-import { extractArticle } from '../server/reader.js';
 import { getCookieJar, clearCookieJar } from '../server/cookieJar.js';
-import { documentNavRateLimiter } from '../server/rateLimit.js';
-import { GET as GETSearchApi } from './search.js';
 
-const app = new Hono().basePath('/api');
+const app = new Hono();
 
+// Helper to escape dynamic strings in HTML
 function escapeHtml(str: string): string {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -18,11 +21,345 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
-function createErrorPage(errorMessage: string, errorCode: string): string {
-  const safeError = escapeHtml(errorMessage);
-  const safeCode = escapeHtml(errorCode);
-  
-  return `<!DOCTYPE html>
+// 1. Health check
+app.get('/api/health', (c) => {
+  return c.json({
+    status: 'ok',
+    mode: 'lite',
+    platform: 'vercel',
+    time: Date.now(),
+  });
+});
+
+// 2. 1-Click App Installer Download Endpoint (/api/download-app?platform=mac|win|android|linux)
+app.get('/api/download-app', (c) => {
+  const queryPlatform = c.req.query('platform')?.toLowerCase();
+  const userAgent = c.req.header('user-agent') || '';
+
+  let platform = queryPlatform;
+  if (!platform) {
+    if (/android/i.test(userAgent)) {
+      platform = 'android';
+    } else if (/macintosh|mac os x/i.test(userAgent)) {
+      platform = 'mac';
+    } else if (/windows/i.test(userAgent)) {
+      platform = 'win';
+    } else if (/linux/i.test(userAgent)) {
+      platform = 'linux';
+    } else {
+      platform = 'win'; // sensible default
+    }
+  }
+
+  const fileMap: Record<string, { filename: string; contentType: string }> = {
+    win: {
+      filename: 'XyroBrowse-Setup-x64.exe',
+      contentType: 'application/vnd.microsoft.portable-executable',
+    },
+    windows: {
+      filename: 'XyroBrowse-Setup-x64.exe',
+      contentType: 'application/vnd.microsoft.portable-executable',
+    },
+    mac: {
+      filename: 'XyroBrowse-Universal.dmg',
+      contentType: 'application/x-apple-diskimage',
+    },
+    macos: {
+      filename: 'XyroBrowse-Universal.dmg',
+      contentType: 'application/x-apple-diskimage',
+    },
+    android: {
+      filename: 'XyroBrowse-v0.1.0.apk',
+      contentType: 'application/vnd.android.package-archive',
+    },
+    apk: {
+      filename: 'XyroBrowse-v0.1.0.apk',
+      contentType: 'application/vnd.android.package-archive',
+    },
+    linux: {
+      filename: 'XyroBrowse-x86_64.AppImage',
+      contentType: 'application/x-executable',
+    },
+    appimage: {
+      filename: 'XyroBrowse-x86_64.AppImage',
+      contentType: 'application/x-executable',
+    },
+  };
+
+  const match = fileMap[platform] || fileMap['win'];
+  const possiblePaths = [
+    path.resolve(process.cwd(), 'public', 'downloads', match.filename),
+    path.resolve(process.cwd(), 'dist', 'downloads', match.filename),
+  ];
+
+  for (const filePath of possiblePaths) {
+    if (fs.existsSync(filePath)) {
+      const buffer = fs.readFileSync(filePath);
+      return new Response(buffer, {
+        status: 200,
+        headers: {
+          'Content-Type': match.contentType,
+          'Content-Disposition': `attachment; filename="${match.filename}"`,
+          'Content-Length': String(buffer.length),
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
+    }
+  }
+
+  // Fallback to official GitHub release URL
+  const releaseUrl = `https://github.com/mostakimadibbd/XyroBrowse/releases/download/v0.1.0/${match.filename}`;
+  return c.redirect(releaseUrl, 302);
+});
+
+// 3. Multi-Engine Search (/api/search?q=...&engine=...)
+app.get('/api/search', async (c) => {
+  const clientIp = c.req.header('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
+  if (!searchRateLimiter.check(clientIp)) {
+    return c.json({ error: 'Too Many Requests', code: 'ERR_TOO_MANY_REQUESTS' }, 429);
+  }
+
+  const query = c.req.query('q')?.trim() || '';
+  const engine = c.req.query('engine') || 'Google';
+
+  if (!query) {
+    return c.json({ error: 'Missing query parameter' }, 400);
+  }
+
+  try {
+    const searchData = await performSearch(query, engine);
+    return c.json(searchData);
+  } catch (err: unknown) {
+    return c.json({ error: 'Search error: ' + (err as Error).message, code: 'ERR_SEARCH_FAILED' }, 500);
+  }
+});
+
+// 4. Reader View Extraction (/api/reader?url=...)
+app.get('/api/reader', async (c) => {
+  const clientIp = c.req.header('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
+  if (!readerRateLimiter.check(clientIp)) {
+    return c.json({ error: 'Too Many Requests', code: 'ERR_TOO_MANY_REQUESTS' }, 429);
+  }
+
+  const targetUrl = c.req.query('url');
+  if (!targetUrl) {
+    return c.json({ error: 'Missing target URL' }, 400);
+  }
+
+  try {
+    const article = await extractArticle(targetUrl);
+    return c.json(article);
+  } catch (err: unknown) {
+    return c.json({ error: (err as Error).message || 'Unable to extract reader content', code: 'ERR_READER_EXTRACTION_FAILED' }, 502);
+  }
+});
+
+// 5. Clear Browsing Data (/api/clear-data)
+app.post('/api/clear-data', (c) => {
+  const cookieHeader = c.req.header('cookie') || '';
+  const match = cookieHeader.match(/xyro_sid=([^;]+)/);
+  if (match && match[1]) {
+    clearCookieJar(match[1]);
+  }
+  return c.json({ success: true });
+});
+
+// 6. Download file streaming (/api/download?url=...)
+app.get('/api/download', async (c) => {
+  const targetUrl = c.req.query('url');
+  if (!targetUrl) {
+    return c.text('Missing target URL', 400);
+  }
+
+  try {
+    const fetched = await safeFetch(targetUrl);
+    let fileName = 'download';
+    try {
+      const parsed = new URL(targetUrl);
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      if (parts.length > 0) fileName = parts[parts.length - 1];
+    } catch {}
+
+    const headers = new Headers();
+    headers.set('Content-Disposition', `attachment; filename="${fileName}"`);
+    headers.set('Content-Type', fetched.contentType || 'application/octet-stream');
+
+    return new Response(fetched.body as any, {
+      status: fetched.status,
+      headers,
+    });
+  } catch (err: unknown) {
+    return c.text('Download failed: ' + (err as Error).message, 502);
+  }
+});
+
+// 7. Backward compatibility redirect: /api/page?url=... -> /api/p/<encOrigin>/<path>
+app.all('/api/page', (c) => {
+  const targetUrl = c.req.query('url');
+  if (!targetUrl) {
+    return c.text('Missing target URL', 400);
+  }
+  const proxied = toProxyUrl(targetUrl);
+  return c.redirect(proxied, 307);
+});
+
+// 8. Path-based Proxy: /api/p/:origin/* and route rewrites
+async function handleProxy(c: any) {
+  let encOrigin = c.req.param('origin');
+  let subpath = c.req.param('proxyPath') || '';
+  const fullUrl = new URL(c.req.url);
+
+  // If invoked via Vercel rewrite query parameters
+  if (!encOrigin) {
+    encOrigin = c.req.query('origin') || '';
+    subpath = c.req.query('proxyPath') || c.req.query('path') || '';
+  }
+
+  // If still missing, check raw path
+  if (!encOrigin) {
+    const match = fullUrl.pathname.match(/\/api\/p\/([^/?#]+)(.*)/);
+    if (match) {
+      encOrigin = match[1];
+      subpath = match[2] || '';
+    }
+  }
+
+  if (!encOrigin) {
+    return c.text('Missing encoded origin', 400);
+  }
+
+  let origin = '';
+  try {
+    origin = decodeURIComponent(encOrigin);
+  } catch {
+    return c.text('Invalid encoded origin', 400);
+  }
+
+  let targetUrl = '';
+  try {
+    const queryStr = fullUrl.search && !fullUrl.search.startsWith('?__route') ? fullUrl.search : '';
+    targetUrl = new URL(subpath.startsWith('/') ? subpath + queryStr : '/' + subpath + queryStr, origin).toString();
+  } catch {
+    return c.text('Invalid target URL combination', 400);
+  }
+
+  const clientIp = c.req.header('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
+  const secFetchDest = c.req.header('sec-fetch-dest') || '';
+  if ((secFetchDest === 'document' || secFetchDest === 'iframe') && !documentNavRateLimiter.check(clientIp)) {
+    return c.json({ error: 'Too Many Requests', code: 'ERR_TOO_MANY_REQUESTS' }, 429);
+  }
+
+  if (c.req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Max-Age': '86400',
+      },
+    });
+  }
+
+  const cookieHeader = c.req.header('cookie') || '';
+  const match = cookieHeader.match(/xyro_sid=([^;]+)/);
+  const sid = match && match[1] ? match[1] : 'lite-anon';
+  const jar = getCookieJar(sid);
+
+  const forwardedHeaders: Record<string, string> = {};
+  for (const h of ['accept', 'accept-language', 'range', 'if-range', 'cache-control', 'content-type']) {
+    const val = c.req.header(h);
+    if (val) forwardedHeaders[h] = val;
+  }
+
+  let bodyBuffer: Buffer | undefined;
+  if (!['GET', 'HEAD'].includes(c.req.method)) {
+    try {
+      const arrBuf = await c.req.arrayBuffer();
+      if (arrBuf && arrBuf.byteLength > 0) {
+        bodyBuffer = Buffer.from(arrBuf);
+      }
+    } catch {}
+  }
+
+  try {
+    const fetched = await safeFetch(targetUrl, {
+      method: c.req.method,
+      headers: forwardedHeaders,
+      body: bodyBuffer,
+      cookieJar: jar,
+      referrer: targetUrl,
+    });
+
+    const contentType = fetched.contentType.toLowerCase();
+    const responseHeaders = new Headers();
+
+    responseHeaders.set('Content-Security-Policy', 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads');
+    responseHeaders.set('Referrer-Policy', 'unsafe-url');
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition, ETag, X-Xyro-Final-Url, X-Xyro-Blocked');
+    responseHeaders.set('X-Xyro-Final-Url', fetched.finalUrl);
+
+    for (const h of ['content-type', 'content-disposition', 'content-range', 'accept-ranges', 'etag']) {
+      const val = fetched.headers.get(h);
+      if (val) responseHeaders.set(h, val);
+    }
+
+    if (contentType.includes('text/html')) {
+      const stream = fetched.body;
+      const chunks: Buffer[] = [];
+      let total = 0;
+      const MAX_REWRITE = 5 * 1024 * 1024;
+
+      if (stream) {
+        for await (const chunk of stream) {
+          chunks.push(Buffer.from(chunk));
+          total += chunk.length;
+          if (total > MAX_REWRITE) break;
+        }
+      }
+
+      const rawHtml = Buffer.concat(chunks).toString('utf-8');
+      const { html, blockedCount } = rewriteHtml(rawHtml, fetched.finalUrl);
+
+      responseHeaders.set('Content-Type', 'text/html; charset=utf-8');
+      responseHeaders.set('X-Xyro-Blocked', String(blockedCount));
+      return new Response(html, { status: fetched.status, headers: responseHeaders });
+    }
+
+    if (contentType.includes('text/css')) {
+      const stream = fetched.body;
+      const chunks: Buffer[] = [];
+      let total = 0;
+      const MAX_REWRITE = 5 * 1024 * 1024;
+
+      if (stream) {
+        for await (const chunk of stream) {
+          chunks.push(Buffer.from(chunk));
+          total += chunk.length;
+          if (total > MAX_REWRITE) break;
+        }
+      }
+
+      const rawCss = Buffer.concat(chunks).toString('utf-8');
+      const rewrittenCss = rewriteCss(rawCss, fetched.finalUrl);
+      responseHeaders.set('Content-Type', 'text/css; charset=utf-8');
+      return new Response(rewrittenCss, { status: fetched.status, headers: responseHeaders });
+    }
+
+    return new Response(fetched.body as any, {
+      status: fetched.status,
+      headers: responseHeaders,
+    });
+  } catch (err: unknown) {
+    let errorCode = 'ERR_CONNECTION_FAILED';
+    let errorMessage = (err as Error).message || 'Failed to load webpage';
+    if (err instanceof SsfError) errorCode = err.code;
+
+    const safeError = escapeHtml(errorMessage);
+    const safeCode = escapeHtml(errorCode);
+
+    const errorHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -55,440 +392,31 @@ function createErrorPage(errorMessage: string, errorCode: string): string {
       cursor: pointer;
       font-size: 13px;
     }
-    .btn:hover { background-color: #aecbfa; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>This site can&rsquo;t be reached</h1>
+    <h1>This site can’t be reached</h1>
     <p>${safeError}</p>
     <button class="btn" onclick="window.location.reload()">Reload</button>
     <div class="code">${safeCode}</div>
   </div>
 </body>
 </html>`;
+
+    return new Response(errorHtml, {
+      status: 502,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': 'sandbox allow-scripts allow-forms allow-popups',
+        'X-Xyro-Error-Code': safeCode,
+      },
+    });
+  }
 }
 
-app.get('/health', (c) => {
-  return c.json({ status: 'ok', mode: 'lite', time: Date.now(), version: '1.0.0' });
-});
+app.all('/api/p/:origin/*', handleProxy);
+app.all('/api/p/:origin', handleProxy);
+app.all('/api/router', handleProxy);
 
-app.get('/search', (c) => GETSearchApi(new Request(c.req.url, {
-  headers: c.req.raw.headers,
-})));
-
-app.post('/clear-data', async (c) => {
-  const body = await c.req.json();
-  const sessionId = String(body?.sessionId || c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID());
-  
-  if (body?.clearCookies) {
-    clearCookieJar(sessionId);
-  }
-  if (body?.privateSessionId) {
-    const privateSessionId = String(body.privateSessionId);
-    if (!/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
-      return c.json({ error: 'Invalid private session' }, 400);
-    }
-    clearCookieJar(privateSessionId);
-  }
-  return c.body(null, 204);
-});
-
-app.all('/p/:origin/**', async (c) => {
-  const encOrigin = c.req.param('origin');
-  const path = c.req.param('*') || '';
-
-  // Keep browser-internal proxy flags out of the upstream website query.
-  const incomingUrl = new URL(c.req.url);
-  const privateSessionId = incomingUrl.searchParams.get('__xyro_sid') || undefined;
-  const shieldsEnabled = incomingUrl.searchParams.get('__xyro_shields') !== 'off';
-  incomingUrl.searchParams.delete('__xyro_sid');
-  incomingUrl.searchParams.delete('__xyro_shields');
-  const query = incomingUrl.searchParams.toString();
-  const queryStr = query ? `?${query}` : '';
-  
-  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
-    return c.text('Invalid private session', 400);
-  }
-
-  let origin = '';
-  try {
-    // Proxy origin segments are base64url encoded to keep Vercel route matching
-    // safe. Continue accepting old percent-encoded origins for existing tabs.
-    const decoded = Buffer.from(encOrigin, 'base64url').toString('utf8');
-    origin = /^https?:\/\//i.test(decoded) ? decoded : decodeURIComponent(encOrigin);
-    const parsedOrigin = new URL(origin);
-    if (!['http:', 'https:'].includes(parsedOrigin.protocol) || parsedOrigin.origin !== origin) {
-      return c.text('Invalid proxy origin', 400);
-    }
-  } catch {
-    return c.text('Invalid encoded origin', 400);
-  }
-
-  let targetUrl = '';
-  try {
-    targetUrl = new URL(path.startsWith('/') ? path + queryStr : '/' + path + queryStr, origin).toString();
-  } catch {
-    return c.text('Invalid target URL combination', 400);
-  }
-
-  const secFetchDest = c.req.header('sec-fetch-dest') || '';
-  if (secFetchDest === 'document' || secFetchDest === 'iframe') {
-    const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1';
-    if (!documentNavRateLimiter.check(clientIp.split(',')[0].trim())) {
-      return c.json({ error: 'Too Many Requests', code: 'ERR_TOO_MANY_REQUESTS' }, 429);
-    }
-  }
-
-  if (c.req.method === 'OPTIONS') {
-    return c.body(null, 204);
-  }
-
-  // The Express development server sets this cookie in middleware. Recreate
-  // the same session behavior in Vercel's serverless handler.
-  const cookieHeader = c.req.header('cookie') || '';
-  const cookieMatch = cookieHeader.match(/xyro_sid=([^;]+)/);
-  const sessionId = cookieMatch?.[1] || crypto.randomUUID();
-  if (!cookieMatch) {
-    const secure = new URL(c.req.url).protocol === 'https:' ? '; Secure' : '';
-    c.header('Set-Cookie', `xyro_sid=${sessionId}; Path=/; HttpOnly; SameSite=Lax${secure}`);
-  }
-
-  const sid = privateSessionId ? privateSessionId : sessionId;
-  const proxySessionId = privateSessionId || sessionId;
-  const jar = getCookieJar(sid);
-
-  const forwardedHeaders: Record<string, string> = {};
-  const allowHeaders = ['accept', 'accept-language', 'range', 'if-range', 'cache-control', 'content-type'];
-  for (const h of allowHeaders) {
-    const val = c.req.header(h);
-    if (val) forwardedHeaders[h] = val;
-  }
-
-  let bodyBuffer: Buffer | undefined;
-  if (!['GET', 'HEAD'].includes(c.req.method)) {
-    const contentType = c.req.header('content-type') || '';
-    const body = await c.req.arrayBuffer();
-    if (contentType.includes('application/x-www-form-urlencoded')) {
-      bodyBuffer = Buffer.from(new URLSearchParams(new TextDecoder().decode(body)).toString());
-    } else {
-      bodyBuffer = Buffer.from(body);
-    }
-  }
-
-  try {
-    const fetched = await safeFetch(targetUrl, {
-      method: c.req.method,
-      headers: forwardedHeaders,
-      body: bodyBuffer,
-      cookieJar: jar,
-      referrer: targetUrl,
-      shieldsEnabled,
-    });
-
-    const contentType = fetched.contentType.toLowerCase();
-
-    c.res.headers.set('Content-Security-Policy', "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads");
-    c.res.headers.set('Referrer-Policy', 'unsafe-url');
-    c.res.headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition, ETag, X-Xyro-Final-Url, X-Xyro-Blocked');
-    c.res.headers.set('X-Xyro-Final-Url', fetched.finalUrl);
-
-    for (const h of ['content-type', 'content-disposition', 'content-range', 'accept-ranges', 'etag']) {
-      const val = fetched.headers.get(h);
-      if (val) c.res.headers.set(h, val);
-    }
-
-    c.res.headers.delete('X-Frame-Options');
-    c.res.headers.delete('Strict-Transport-Security');
-    c.res.headers.delete('Cross-Origin-Opener-Policy');
-    c.res.headers.delete('Cross-Origin-Embedder-Policy');
-    c.res.headers.delete('Cross-Origin-Resource-Policy');
-
-    if (contentType.includes('text/html')) {
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      const MAX_REWRITE = 5 * 1024 * 1024;
-
-      if (fetched.body) {
-        const reader = fetched.body.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          total += value.length;
-          if (total > MAX_REWRITE) break;
-        }
-      }
-
-      const rawHtml = Buffer.concat(chunks.map(c => Buffer.from(c))).toString('utf-8');
-      const { html, blockedCount } = rewriteHtml(
-        rawHtml,
-        fetched.finalUrl,
-        undefined,
-        proxySessionId,
-        shieldsEnabled
-      );
-
-      c.res.headers.set('Content-Type', 'text/html; charset=utf-8');
-      c.res.headers.set('X-Xyro-Blocked', String(blockedCount));
-      return c.html(html, fetched.status);
-    }
-
-    if (contentType.includes('text/css')) {
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      const MAX_REWRITE = 5 * 1024 * 1024;
-
-      if (fetched.body) {
-        const reader = fetched.body.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          total += value.length;
-          if (total > MAX_REWRITE) break;
-        }
-      }
-
-      const rawCss = Buffer.concat(chunks.map(c => Buffer.from(c))).toString('utf-8');
-      const rewrittenCss = rewriteCss(
-        rawCss,
-        fetched.finalUrl,
-        proxySessionId,
-        shieldsEnabled
-      );
-      c.res.headers.set('Content-Type', 'text/css; charset=utf-8');
-      return c.text(rewrittenCss, fetched.status);
-    }
-
-    c.status(fetched.status);
-    if (fetched.body) {
-      return stream(c, async (stream) => {
-        const reader = fetched.body!.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          await stream.write(value);
-        }
-      });
-    }
-    return c.body(null, fetched.status);
-  } catch (err: unknown) {
-    let errorCode = 'ERR_CONNECTION_FAILED';
-    let errorMessage = (err as Error).message || 'Failed to load webpage';
-
-    if (err instanceof SsfError) {
-      errorCode = err.code;
-    }
-
-    const errorHtml = createErrorPage(errorMessage, errorCode);
-    c.res.headers.set('Content-Type', 'text/html; charset=utf-8');
-    c.res.headers.set('Content-Security-Policy', 'sandbox allow-scripts allow-forms allow-popups');
-    c.res.headers.set('X-Xyro-Error-Code', errorCode);
-    return c.html(errorHtml, 502);
-  }
-});
-
-app.all('/page', (c) => {
-  const targetUrl = c.req.query('url');
-  if (!targetUrl) {
-    return c.text('Missing target URL', 400);
-  }
-  return c.redirect(toProxyUrl(targetUrl), 307);
-});
-
-app.get('/reader', async (c) => {
-  const targetUrl = c.req.query('url');
-  const privateSessionId = c.req.query('__xyro_sid');
-  const shieldsEnabled = c.req.query('__xyro_shields') !== 'off';
-
-  if (!targetUrl) {
-    return c.json({ error: 'Missing target URL' }, 400);
-  }
-  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
-    return c.json({ error: 'Invalid private session' }, 400);
-  }
-
-  try {
-    const sessionId = c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID();
-    const cookieJar = privateSessionId ? getCookieJar(privateSessionId) : getCookieJar(sessionId);
-    const article = await extractArticle(targetUrl, cookieJar, shieldsEnabled);
-    return c.json(article);
-  } catch (err: unknown) {
-    return c.json({
-      error: (err as Error).message || 'Unable to extract reader content',
-      code: 'ERR_READER_EXTRACTION_FAILED',
-    }, 502);
-  }
-});
-
-app.get('/download', async (c) => {
-  const targetUrl = c.req.query('url');
-  const privateSessionId = c.req.query('__xyro_sid');
-  const shieldsEnabled = c.req.query('__xyro_shields') !== 'off';
-
-  if (!targetUrl) {
-    return c.text('Missing target URL', 400);
-  }
-  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
-    return c.text('Invalid private session', 400);
-  }
-
-  try {
-    const sessionId = c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID();
-    const sid = privateSessionId ? privateSessionId : sessionId;
-    const jar = getCookieJar(sid);
-    const fetched = await safeFetch(targetUrl, { cookieJar: jar, shieldsEnabled });
-
-    let fileName = 'download';
-    try {
-      const parsed = new URL(targetUrl);
-      const parts = parsed.pathname.split('/').filter(Boolean);
-      if (parts.length > 0) {
-        fileName = parts[parts.length - 1];
-      }
-    } catch {}
-
-    c.res.headers.set('Content-Disposition', `attachment; filename="${fileName}"`);
-    c.res.headers.set('Content-Type', fetched.contentType || 'application/octet-stream');
-    c.status(fetched.status);
-    
-    if (fetched.body) {
-      return stream(c, async (stream) => {
-        const reader = fetched.body!.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          await stream.write(value);
-        }
-      });
-    }
-    return c.body(null, fetched.status);
-  } catch (err: unknown) {
-    return c.text('Download failed: ' + (err as Error).message, 502);
-  }
-});
-
-const handleRequest = (request: Request): Promise<Response> => {
-  const requestUrl = new URL(request.url);
-  const route = requestUrl.searchParams.get('__route');
-  if (!route) {
-    return requestUrl.pathname === '/api/router'
-      ? new Response('Not Found', { status: 404 })
-      : app.fetch(request);
-  }
-
-  if (route === 'proxy') {
-    const encodedOrigin = requestUrl.searchParams.get('__origin');
-    const proxyPath = requestUrl.searchParams.get('__proxyPath') || '/';
-    if (!encodedOrigin) return Promise.resolve(Response.json({ error: 'Missing proxy origin' }, { status: 400 }));
-
-    // Proxy origins are now base64url encoded so Vercel's path matcher can
-    // safely capture them. Accept legacy percent-encoded origins as well.
-    let origin = encodedOrigin;
-    try {
-      const decoded = Buffer.from(encodedOrigin, 'base64url').toString('utf8');
-      if (decoded.startsWith('http://') || decoded.startsWith('https://')) origin = decoded;
-      else origin = decodeURIComponent(encodedOrigin);
-    } catch {
-      try { origin = decodeURIComponent(encodedOrigin); } catch {}
-    }
-    if (!/^https?:\/\//i.test(origin)) {
-      return Promise.resolve(Response.json({ error: 'Invalid proxy origin', code: 'ERR_INVALID_PROXY_ORIGIN' }, { status: 400 }));
-    }
-
-    // Keep the base64url origin as-is; percent-encoding it here makes the
-    // downstream /api/p route disagree with the new URL format.
-    requestUrl.pathname = `/api/p/${encodedOrigin}${proxyPath.startsWith('/') ? proxyPath : `/${proxyPath}`}`;
-    requestUrl.searchParams.delete('__origin');
-    requestUrl.searchParams.delete('__proxyPath');
-  } else {
-    requestUrl.pathname = `/api/${route}`;
-  }
-
-  requestUrl.searchParams.delete('__route');
-  return app.fetch(new Request(requestUrl, request));
-};
-
-/**
- * Vercel's Node.js runtime expects an (IncomingMessage, ServerResponse) handler.
- * A Fetch-style { fetch } export is not a valid Node function entry point.
- */
-export default async function handler(
-  req: import('node:http').IncomingMessage,
-  res: import('node:http').ServerResponse
-): Promise<void> {
-  try {
-    const forwardedProto = req.headers['x-forwarded-proto'];
-    const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto)
-      ?.split(',')[0]?.trim() || 'https';
-    const forwardedHost = req.headers['x-forwarded-host'] || req.headers.host;
-    const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
-
-    if (!host) {
-      res.statusCode = 400;
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.end(JSON.stringify({ error: 'Missing request host', code: 'ERR_MISSING_HOST' }));
-      return;
-    }
-
-    const headers = new Headers();
-    // Hop-by-hop headers belong to Node's HTTP transport, not the Web Request.
-    const hopByHop = new Set([
-      'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
-      'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length',
-    ]);
-    for (const [name, value] of Object.entries(req.headers)) {
-      if (value === undefined || hopByHop.has(name.toLowerCase())) continue;
-      if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
-      else headers.set(name, value);
-    }
-
-    const method = (req.method || 'GET').toUpperCase();
-    const init: RequestInit & { duplex?: 'half' } = { method, headers };
-    if (method !== 'GET' && method !== 'HEAD') {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      init.body = Buffer.concat(chunks);
-      init.duplex = 'half';
-    }
-
-    const requestUrl = new URL(req.url || '/', `${protocol}://${host}`);
-    const response = await handleRequest(new Request(requestUrl, init));
-
-    res.statusCode = response.status;
-    response.headers.forEach((value, name) => {
-      if (name.toLowerCase() !== 'set-cookie') res.setHeader(name, value);
-    });
-    const cookies = response.headers.getSetCookie?.() || [];
-    if (cookies.length) res.setHeader('Set-Cookie', cookies);
-
-    if (!response.body || method === 'HEAD') {
-      res.end();
-      return;
-    }
-
-    const reader = response.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!res.write(Buffer.from(value))) {
-        await new Promise<void>((resolve, reject) => {
-          res.once('drain', resolve);
-          res.once('error', reject);
-        });
-      }
-    }
-    res.end();
-  } catch (error) {
-    console.error('XyroBrowse API handler failed:', error);
-    if (!res.headersSent) {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-store');
-    }
-    res.end(JSON.stringify({ error: 'Internal API error', code: 'ERR_API_HANDLER' }));
-  }
-}
+export default handle(app);

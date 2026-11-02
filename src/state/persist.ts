@@ -12,74 +12,64 @@ const KEYS = {
 
 export const DEFAULT_SETTINGS: BrowserSettings = {
   defaultSearchEngine: 'google',
-  homePage: 'chrome://newtab',
+  homePage: 'xyro://newtab',
   showBookmarksBar: true,
   theme: 'dark',
   mobileToolbarPosition: 'bottom',
   shieldsEnabled: true,
   blockThirdPartyCookies: true,
+  verticalTabs: false,
 };
+
+const debounceTimers = new Map<string, any>();
+
+function debouncedSetItem(key: string, value: string, delay = 300) {
+  if (debounceTimers.has(key)) {
+    clearTimeout(debounceTimers.get(key));
+  }
+
+  const timer = setTimeout(() => {
+    debounceTimers.delete(key);
+    const scheduleWrite =
+      typeof window !== 'undefined' && 'requestIdleCallback' in window
+        ? (cb: () => void) => (window as any).requestIdleCallback(cb, { timeout: 1000 })
+        : (cb: () => void) => cb();
+
+    scheduleWrite(() => {
+      try {
+        localStorage.setItem(key, value);
+      } catch (err) {
+        console.warn(`Failed to persist ${key} to localStorage:`, err);
+      }
+    });
+  }, delay);
+
+  debounceTimers.set(key, timer);
+}
 
 export class Storage {
   static getTabs(): Tab[] {
     try {
       const data = localStorage.getItem(KEYS.TABS);
       if (data) {
-        const parsed: unknown = JSON.parse(data);
-        if (Array.isArray(parsed)) {
-          const tabs = parsed
-            .filter(
-              (tab): tab is Partial<Tab> & Pick<Tab, 'id' | 'url'> =>
-              !!tab &&
-              typeof tab === 'object' &&
-              typeof tab.id === 'string' &&
-              typeof tab.url === 'string' &&
-              !tab.isIncognito
-            )
-            .map((tab): Tab => {
-              const history = Array.isArray(tab.history)
-                ? tab.history.filter((url): url is string => typeof url === 'string')
-                : [];
-              const safeHistory = history.length > 0 ? history : [tab.url];
-              return {
-                id: tab.id,
-                url: tab.url,
-                contentUrl: tab.url,
-                title: typeof tab.title === 'string' ? tab.title : 'New Tab',
-                favicon: typeof tab.favicon === 'string' ? tab.favicon : undefined,
-                isIncognito: false,
-                pinned: tab.pinned === true,
-                history: safeHistory,
-                historyIndex:
-                  typeof tab.historyIndex === 'number'
-                    ? Math.max(0, Math.min(safeHistory.length - 1, tab.historyIndex))
-                    : safeHistory.length - 1,
-                zoom: typeof tab.zoom === 'number' && tab.zoom >= 25 && tab.zoom <= 500
-                  ? tab.zoom
-                  : 100,
-                isLoading: false,
-                isReaderMode: false,
-                autoDarkMode: tab.autoDarkMode === true,
-                viewSource: false,
-                blockedCount:
-                  typeof tab.blockedCount === 'number' && tab.blockedCount >= 0
-                    ? tab.blockedCount
-                    : 0,
-                lastActive: typeof tab.lastActive === 'number' ? tab.lastActive : Date.now(),
-              };
-            });
-          if (tabs.length > 0) return tabs;
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Normalize any legacy chrome:// to xyro://
+          return parsed.map((t: Tab) => ({
+            ...t,
+            url: t.url.startsWith('chrome://') ? t.url.replace('chrome://', 'xyro://') : t.url,
+          }));
         }
       }
     } catch {}
     return [
       {
         id: 'tab-1',
-        url: 'chrome://newtab',
+        url: 'xyro://newtab',
         title: 'New Tab',
         isIncognito: false,
         pinned: false,
-        history: ['chrome://newtab'],
+        history: ['xyro://newtab'],
         historyIndex: 0,
         zoom: 100,
         isLoading: false,
@@ -93,41 +83,17 @@ export class Storage {
   }
 
   static saveTabs(tabs: Tab[]) {
-    try {
-      // Don't persist incognito tabs
-      const toSave = tabs
-        .filter((t) => !t.isIncognito)
-        .map((t) => ({ ...t, contentUrl: t.url }));
-      localStorage.setItem(KEYS.TABS, JSON.stringify(toSave));
-    } catch {}
+    // Don't persist incognito tabs
+    const toSave = tabs.filter((t) => !t.isIncognito);
+    debouncedSetItem(KEYS.TABS, JSON.stringify(toSave));
   }
 
   static getActiveTabId(): string {
-    try {
-      return localStorage.getItem(KEYS.ACTIVE_TAB) || 'tab-1';
-    } catch {
-      return 'tab-1';
-    }
+    return localStorage.getItem(KEYS.ACTIVE_TAB) || 'tab-1';
   }
 
   static saveActiveTabId(id: string) {
-    try {
-      localStorage.setItem(KEYS.ACTIVE_TAB, id);
-    } catch {}
-  }
-
-  static getVerticalTabsEnabled(): boolean {
-    try {
-      return localStorage.getItem('xyro-vertical-tabs') === 'true';
-    } catch {
-      return false;
-    }
-  }
-
-  static saveVerticalTabsEnabled(enabled: boolean): void {
-    try {
-      localStorage.setItem('xyro-vertical-tabs', String(enabled));
-    } catch {}
+    debouncedSetItem(KEYS.ACTIVE_TAB, id, 100);
   }
 
   static getBookmarks(): BookmarkNode[] {
@@ -139,9 +105,7 @@ export class Storage {
   }
 
   static saveBookmarks(bookmarks: BookmarkNode[]) {
-    try {
-      localStorage.setItem(KEYS.BOOKMARKS, JSON.stringify(bookmarks));
-    } catch {}
+    debouncedSetItem(KEYS.BOOKMARKS, JSON.stringify(bookmarks));
   }
 
   static getHistory(): HistoryItem[] {
@@ -153,10 +117,8 @@ export class Storage {
   }
 
   static saveHistory(history: HistoryItem[]) {
-    try {
-      // Cap at 1000 items
-      localStorage.setItem(KEYS.HISTORY, JSON.stringify(history.slice(0, 1000)));
-    } catch {}
+    // Cap at 1000 items
+    debouncedSetItem(KEYS.HISTORY, JSON.stringify(history.slice(0, 1000)));
   }
 
   static getDownloads(): DownloadItem[] {
@@ -168,9 +130,7 @@ export class Storage {
   }
 
   static saveDownloads(downloads: DownloadItem[]) {
-    try {
-      localStorage.setItem(KEYS.DOWNLOADS, JSON.stringify(downloads.slice(0, 50)));
-    } catch {}
+    debouncedSetItem(KEYS.DOWNLOADS, JSON.stringify(downloads.slice(0, 50)));
   }
 
   static getSettings(): BrowserSettings {
@@ -182,8 +142,6 @@ export class Storage {
   }
 
   static saveSettings(settings: BrowserSettings) {
-    try {
-      localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
-    } catch {}
+    debouncedSetItem(KEYS.SETTINGS, JSON.stringify(settings));
   }
 }

@@ -1,4 +1,4 @@
-import { DownloadItem as ElectronDownloadItem, WebContents, dialog, shell } from 'electron';
+import { DownloadItem as ElectronDownloadItem, WebContents, Session, shell } from 'electron';
 
 export interface ActiveDownload {
   id: string;
@@ -14,9 +14,18 @@ export interface ActiveDownload {
 export class DesktopDownloadManager {
   private downloads = new Map<string, ActiveDownload>();
 
+  public attachToSession(
+    session: Session,
+    sendToUI: (event: string, payload: any) => void
+  ): void {
+    session.on('will-download', (_evt, item, contents) => {
+      this.handleWillDownload(item, contents, sendToUI);
+    });
+  }
+
   public handleWillDownload(
     item: ElectronDownloadItem,
-    webContents: WebContents,
+    _webContents: WebContents,
     sendToUI: (event: string, payload: any) => void
   ): void {
     const id = `dl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

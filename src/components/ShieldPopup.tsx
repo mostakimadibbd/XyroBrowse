@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, CheckCircle, EyeOff, Lock, Info, AlertTriangle } from 'lucide-react';
+import { Shield, CheckCircle, EyeOff, Lock, Info } from 'lucide-react';
 
 interface ShieldPopupProps {
   url: string;
@@ -21,7 +21,7 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
     if (url.startsWith('http')) hostname = new URL(url).hostname;
   } catch {}
 
-  const isElectron = typeof window !== 'undefined' && (window as any).xyro?.platform === 'electron';
+  const isElectron = typeof window !== 'undefined' && window.xyro?.platform === 'electron';
 
   return (
     <>
@@ -34,13 +34,19 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
         onClick={onClose}
       />
       <div
-        className="chrome-menu"
+        className="chrome-menu xyro-menu"
         style={{
+          position: 'absolute',
           top: 42,
-          right: 50,
-          width: 330,
+          right: 48,
+          width: 320,
           padding: 16,
           zIndex: 160,
+          backgroundColor: 'var(--xyro-menu-bg, #2b2d31)',
+          border: '1px solid var(--xyro-border-subtle, #3c4043)',
+          borderRadius: 8,
+          boxShadow: 'var(--xyro-menu-shadow, 0 4px 16px rgba(0,0,0,0.5))',
+          color: 'var(--xyro-text-primary, #e8eaed)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -48,7 +54,7 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Shield size={18} style={{ color: shieldsEnabled ? '#81c995' : '#f28b82' }} />
-            <span style={{ fontWeight: 600, fontSize: 14 }}>Privacy Shields</span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>Xyro Shields</span>
           </div>
 
           <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
@@ -61,15 +67,15 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
           </label>
         </div>
 
-        <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)', marginBottom: 12 }}>
-          Site protection for <span style={{ color: 'var(--chrome-text-primary)' }}>{hostname}</span>
+        <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)', marginBottom: 12 }}>
+          Site protection for <span style={{ color: 'var(--xyro-text-primary, #e8eaed)' }}>{hostname}</span>
         </div>
 
         {/* Real Blocked Metrics Card */}
         <div
           style={{
-            backgroundColor: 'var(--chrome-omnibox-bg)',
-            border: '1px solid var(--chrome-border-subtle)',
+            backgroundColor: 'var(--xyro-omnibox-bg, #1e1f22)',
+            border: '1px solid var(--xyro-border-subtle, #3c4043)',
             borderRadius: 6,
             padding: 12,
             marginBottom: 14,
@@ -79,7 +85,7 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
           <div style={{ fontSize: 26, fontWeight: 700, color: '#81c995' }}>
             {shieldsEnabled ? blockedCount : 0}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--chrome-text-secondary)' }}>
+          <div style={{ fontSize: 12, color: 'var(--xyro-text-secondary, #9aa0a6)' }}>
             Trackers & ads blocked on this page
           </div>
         </div>
@@ -100,17 +106,17 @@ export const ShieldPopup: React.FC<ShieldPopupProps> = ({
           </div>
         </div>
 
-        {/* Honest Filter List Notice */}
-        <div style={{ fontSize: 11, color: 'var(--chrome-text-secondary)', borderTop: '1px solid var(--chrome-border-subtle)', paddingTop: 10, marginBottom: 10 }}>
+        {/* Filter List Notice */}
+        <div style={{ fontSize: 11, color: 'var(--xyro-text-secondary, #9aa0a6)', borderTop: '1px solid var(--xyro-border-subtle, #3c4043)', paddingTop: 10, marginBottom: 10 }}>
           YouTube and certain media platforms actively fight blockers; blocking coverage depends on updated filter lists.
         </div>
 
         {/* Platform Notice */}
         {!isElectron && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', backgroundColor: '#303134', padding: 8, borderRadius: 6, fontSize: 11, color: '#e8eaed' }}>
-            <Info size={14} style={{ color: '#8ab4f8', flexShrink: 0, marginTop: 2 }} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', backgroundColor: '#202124', padding: 8, borderRadius: 6, fontSize: 11, color: '#e8eaed', border: '1px solid var(--xyro-border-subtle, #3c4043)' }}>
+            <Info size={14} style={{ color: 'var(--xyro-accent-pink, #ec4899)', flexShrink: 0, marginTop: 2 }} />
             <div>
-              <strong>Lite mode:</strong> pages are rendered through a proxy, and many modern sites will not work. Use the desktop app for full compatibility.
+              <strong>Lite mode:</strong> pages are rendered through a proxy in sandboxed frames, and many modern complex sites will not work. Use the desktop app for full compatibility.
             </div>
           </div>
         )}

@@ -1,13 +1,14 @@
 import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
-import { Readable } from 'node:stream';
+import compression from 'compression';
 import { safeFetch, SsfError } from './server/safeFetch.js';
 import { rewriteHtml, rewriteCss, fromProxyPath, toProxyUrl } from './server/rewriteHtml.js';
 import { extractArticle } from './server/reader.js';
 import { performSearch } from './server/search.js';
-import { clearCookieJar, getCookieJar } from './server/cookieJar.js';
+import { getCookieJar } from './server/cookieJar.js';
 import { searchRateLimiter, readerRateLimiter, documentNavRateLimiter } from './server/rateLimit.js';
 
 const app = express();
@@ -15,6 +16,9 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
 
 app.set('trust proxy', true);
+
+// Enable gzip/deflate compression for fast transfers
+app.use(compression());
 
 // Parse JSON and URL-encoded bodies for form submissions and APIs
 app.use(express.json({ limit: '10mb' }));
@@ -54,21 +58,6 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', mode: 'lite', time: Date.now() });
 });
 
-app.post('/api/clear-data', (req: Request, res: Response) => {
-  if (req.body?.clearCookies) {
-    clearCookieJar(String(req.body.sessionId || (req as any).xyro_sid));
-  }
-  if (req.body?.privateSessionId) {
-    const privateSessionId = String(req.body.privateSessionId);
-    if (!/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
-      res.status(400).json({ error: 'Invalid private session' });
-      return;
-    }
-    clearCookieJar(privateSessionId);
-  }
-  res.status(204).end();
-});
-
 // Backward compatibility redirect: /api/page?url=... -> /api/p/<encOrigin>/<path>
 app.all('/api/page', (req: Request, res: Response) => {
   const targetUrl = (req.query.url as string) || (req.body && req.body.url);
@@ -84,28 +73,11 @@ app.all('/api/page', (req: Request, res: Response) => {
 app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
   const encOrigin = req.params.origin;
   const subpath = (req.params as any)[0] || '';
-  const proxyRequestUrl = new URL(req.url, 'http://xyro.local');
-  const privateSessionId = proxyRequestUrl.searchParams.get('__xyro_sid');
-  const shieldsEnabled = proxyRequestUrl.searchParams.get('__xyro_shields') !== 'off';
-  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
-    res.status(400).send('Invalid private session');
-    return;
-  }
-  proxyRequestUrl.searchParams.delete('__xyro_sid');
-  proxyRequestUrl.searchParams.delete('__xyro_shields');
-  const queryStr = proxyRequestUrl.search;
+  const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
 
   let origin = '';
   try {
-    // Current proxy paths use base64url origins. Accept legacy percent-encoded
-    // paths too, so existing bookmarks and open tabs continue to work.
-    const decoded = Buffer.from(encOrigin, 'base64url').toString('utf8');
-    origin = /^https?:\/\//i.test(decoded) ? decoded : decodeURIComponent(encOrigin);
-    const parsedOrigin = new URL(origin);
-    if (!['http:', 'https:'].includes(parsedOrigin.protocol) || parsedOrigin.origin !== origin) {
-      res.status(400).send('Invalid proxy origin');
-      return;
-    }
+    origin = decodeURIComponent(encOrigin);
   } catch {
     res.status(400).send('Invalid encoded origin');
     return;
@@ -139,9 +111,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
     return;
   }
 
-  const sid = privateSessionId
-    ? privateSessionId
-    : (req as any).xyro_sid;
+  const sid = (req as any).xyro_sid;
   const jar = getCookieJar(sid);
 
   // Safe headers passthrough
@@ -177,7 +147,6 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       body: bodyBuffer,
       cookieJar: jar,
       referrer: targetUrl,
-      shieldsEnabled,
     });
 
     const contentType = fetched.contentType.toLowerCase();
@@ -210,7 +179,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       const MAX_REWRITE = 5 * 1024 * 1024;
 
       if (stream) {
-        for await (const chunk of Readable.fromWeb(stream)) {
+        for await (const chunk of stream) {
           chunks.push(Buffer.from(chunk));
           total += chunk.length;
           if (total > MAX_REWRITE) break;
@@ -218,13 +187,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       }
 
       const rawHtml = Buffer.concat(chunks).toString('utf-8');
-      const { html, blockedCount } = rewriteHtml(
-        rawHtml,
-        fetched.finalUrl,
-        undefined,
-        privateSessionId || (req as any).xyro_sid,
-        shieldsEnabled
-      );
+      const { html, blockedCount } = rewriteHtml(rawHtml, fetched.finalUrl);
 
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('X-Xyro-Blocked', String(blockedCount));
@@ -240,7 +203,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       const MAX_REWRITE = 5 * 1024 * 1024;
 
       if (stream) {
-        for await (const chunk of Readable.fromWeb(stream)) {
+        for await (const chunk of stream) {
           chunks.push(Buffer.from(chunk));
           total += chunk.length;
           if (total > MAX_REWRITE) break;
@@ -248,12 +211,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       }
 
       const rawCss = Buffer.concat(chunks).toString('utf-8');
-      const rewrittenCss = rewriteCss(
-        rawCss,
-        fetched.finalUrl,
-        privateSessionId || (req as any).xyro_sid,
-        shieldsEnabled
-      );
+      const rewrittenCss = rewriteCss(rawCss, fetched.finalUrl);
       res.setHeader('Content-Type', 'text/css; charset=utf-8');
       res.status(fetched.status).send(rewrittenCss);
       return;
@@ -262,7 +220,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
     // Non-HTML streaming passthrough (no size cap, Range & 206 supported)
     res.status(fetched.status);
     if (fetched.body) {
-      Readable.fromWeb(fetched.body).pipe(res);
+      fetched.body.pipe(res);
     } else {
       res.end();
     }
@@ -339,22 +297,13 @@ app.get('/api/reader', async (req: Request, res: Response) => {
   }
 
   const targetUrl = req.query.url as string;
-  const privateSessionId = req.query.__xyro_sid as string | undefined;
-  const shieldsEnabled = req.query.__xyro_shields !== 'off';
   if (!targetUrl) {
     res.status(400).json({ error: 'Missing target URL' });
     return;
   }
-  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
-    res.status(400).json({ error: 'Invalid private session' });
-    return;
-  }
 
   try {
-    const cookieJar = privateSessionId
-      ? getCookieJar(privateSessionId)
-      : getCookieJar((req as any).xyro_sid);
-    const article = await extractArticle(targetUrl, cookieJar, shieldsEnabled);
+    const article = await extractArticle(targetUrl);
     res.json(article);
   } catch (err: unknown) {
     res.status(502).json({
@@ -391,26 +340,74 @@ app.get('/api/search', async (req: Request, res: Response) => {
   }
 });
 
+// 3.5. 1-Click App Installer Download Endpoint (/api/download-app?platform=mac|win|android|linux)
+app.get('/api/download-app', (req: Request, res: Response) => {
+  const queryPlatform = (req.query.platform as string)?.toLowerCase();
+  const userAgent = req.headers['user-agent'] || '';
+
+  let platform = queryPlatform;
+  if (!platform) {
+    if (/android/i.test(userAgent)) {
+      platform = 'android';
+    } else if (/macintosh|mac os x/i.test(userAgent)) {
+      platform = 'mac';
+    } else if (/windows/i.test(userAgent)) {
+      platform = 'win';
+    } else if (/linux/i.test(userAgent)) {
+      platform = 'linux';
+    } else {
+      platform = 'win';
+    }
+  }
+
+  const fileMap: Record<string, { filename: string; contentType: string }> = {
+    win: { filename: 'XyroBrowse-Setup-x64.exe', contentType: 'application/vnd.microsoft.portable-executable' },
+    windows: { filename: 'XyroBrowse-Setup-x64.exe', contentType: 'application/vnd.microsoft.portable-executable' },
+    mac: { filename: 'XyroBrowse-Universal.dmg', contentType: 'application/x-apple-diskimage' },
+    macos: { filename: 'XyroBrowse-Universal.dmg', contentType: 'application/x-apple-diskimage' },
+    android: { filename: 'XyroBrowse-v0.1.0.apk', contentType: 'application/vnd.android.package-archive' },
+    apk: { filename: 'XyroBrowse-v0.1.0.apk', contentType: 'application/vnd.android.package-archive' },
+    linux: { filename: 'XyroBrowse-x86_64.AppImage', contentType: 'application/x-executable' },
+    appimage: { filename: 'XyroBrowse-x86_64.AppImage', contentType: 'application/x-executable' },
+  };
+
+  const match = fileMap[platform] || fileMap['win'];
+  const possiblePaths = [
+    path.resolve(process.cwd(), 'public', 'downloads', match.filename),
+    path.resolve(process.cwd(), 'dist', 'downloads', match.filename),
+  ];
+
+  for (const filePath of possiblePaths) {
+    if (path.resolve(filePath).startsWith(path.resolve(process.cwd()))) {
+      try {
+        const stat = path.resolve(filePath);
+        if (fs.existsSync(stat)) {
+          res.setHeader('Content-Type', match.contentType);
+          res.setHeader('Content-Disposition', `attachment; filename="${match.filename}"`);
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          res.sendFile(stat);
+          return;
+        }
+      } catch {}
+    }
+  }
+
+  const releaseUrl = `https://github.com/mostakimadibbd/XyroBrowse/releases/download/v0.1.0/${match.filename}`;
+  res.redirect(302, releaseUrl);
+});
+
 // 4. Download Streaming Endpoint (/api/download?url=...)
 app.get('/api/download', async (req: Request, res: Response) => {
   const targetUrl = req.query.url as string;
-  const privateSessionId = req.query.__xyro_sid as string | undefined;
-  const shieldsEnabled = req.query.__xyro_shields !== 'off';
   if (!targetUrl) {
     res.status(400).send('Missing target URL');
     return;
   }
-  if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
-    res.status(400).send('Invalid private session');
-    return;
-  }
 
   try {
-    const sid = privateSessionId
-      ? privateSessionId
-      : (req as any).xyro_sid;
+    const sid = (req as any).xyro_sid;
     const jar = getCookieJar(sid);
-    const fetched = await safeFetch(targetUrl, { cookieJar: jar, shieldsEnabled });
+    const fetched = await safeFetch(targetUrl, { cookieJar: jar });
 
     let fileName = 'download';
     try {
@@ -425,7 +422,7 @@ app.get('/api/download', async (req: Request, res: Response) => {
     res.setHeader('Content-Type', fetched.contentType || 'application/octet-stream');
     res.status(fetched.status);
     if (fetched.body) {
-      Readable.fromWeb(fetched.body).pipe(res);
+      fetched.body.pipe(res);
     } else {
       res.end();
     }

@@ -1,22 +1,12 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  Tab,
-  BookmarkNode,
-  HistoryItem,
-  DownloadItem,
-  BrowserSettings,
-  ContextMenuState,
-  TabGroup,
-  Workspace,
-  SidePanelState,
-  SidePanelView,
-  CommandItem,
-} from './types';
-import { SEARCH_ENGINES, resolveOmniboxInput } from './lib/url';
+import React, { useReducer, useEffect, useCallback, useMemo, useState, memo } from 'react';
+import { Tab, SearchEngine, BookmarkNode, HistoryItem, DownloadItem, BrowserSettings, ContextMenuState } from './types';
+import { browserReducer, BrowserState } from './state/reducer';
+import { getActiveTab, getCurrentEngine, isBookmarked } from './state/selectors';
 import { Storage } from './state/persist';
+import { getBrowserEngine } from './engine';
+import { resolveOmniboxInput } from './lib/url';
 import { downloadFile } from './lib/downloads';
 import { TabStrip } from './components/TabStrip';
-import { VerticalTabs } from './components/VerticalTabs';
 import { Toolbar } from './components/Toolbar';
 import { BookmarksBar } from './components/BookmarksBar';
 import { Viewport } from './components/Viewport';
@@ -27,138 +17,68 @@ import { ClearDataDialog } from './components/ClearDataDialog';
 import { ContextMenu } from './components/ContextMenu';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { TabSwitcher } from './components/TabSwitcher';
-import { SidePanel } from './components/SidePanel';
-import { CommandPalette } from './components/CommandPalette';
-import { 
-  Plus, Layers, Command, Sidebar, SplitSquareHorizontal, 
-  Home, Settings, History, Bookmark, Download, Shield, 
-  RefreshCw, Search, Sparkles
-} from 'lucide-react';
+import { DownloadPortal } from './pages/DownloadPortal';
+import { Plus, X, Globe } from 'lucide-react';
 
-function getOrCreateBrowserSessionId(): string {
-  const key = 'xyrobrowse:browser-session-id';
-  try {
-    const existing = window.localStorage.getItem(key);
-    if (existing && /^[a-f0-9-]{36}$/i.test(existing)) return existing;
-    const created = crypto.randomUUID();
-    window.localStorage.setItem(key, created);
-    return created;
-  } catch {
-    return crypto.randomUUID();
-  }
-}
+const MemoizedTabStrip = memo(TabStrip);
+const MemoizedToolbar = memo(Toolbar);
+const MemoizedBookmarksBar = memo(BookmarksBar);
 
 export default function App() {
-  // Keep ordinary tabs on one shared session. Incognito tabs use isolated IDs,
-  // avoiding reliance on third-party iframe cookies in sandboxed Lite Mode.
-  const [browserSessionId] = useState<string>(() => getOrCreateBrowserSessionId());
-
-  // 1. Persistent State
-  const [tabs, setTabs] = useState<Tab[]>(() =>
-    Storage.getTabs().map((tab) => ({
-      ...tab,
-      proxySessionId: tab.isIncognito
-        ? (tab.proxySessionId || crypto.randomUUID())
-        : browserSessionId,
-    }))
-  );
-  const [activeTabId, setActiveTabId] = useState<string>(() => {
-    const restoredTabs = Storage.getTabs();
-    const storedActiveId = Storage.getActiveTabId();
-    return restoredTabs.some((tab) => tab.id === storedActiveId)
-      ? storedActiveId
-      : restoredTabs[0]?.id || 'tab-1';
+  const [state, dispatch] = useReducer(browserReducer, null, (): BrowserState => {
+    return {
+      tabs: Storage.getTabs(),
+      activeTabId: Storage.getActiveTabId(),
+      bookmarks: Storage.getBookmarks(),
+      history: Storage.getHistory(),
+      downloads: Storage.getDownloads(),
+      settings: Storage.getSettings(),
+    };
   });
-  const [bookmarks, setBookmarks] = useState<BookmarkNode[]>(() => Storage.getBookmarks());
-  const [history, setHistory] = useState<HistoryItem[]>(() => Storage.getHistory());
-  const [downloads, setDownloads] = useState<DownloadItem[]>(() => Storage.getDownloads());
-  const [settings, setSettings] = useState<BrowserSettings>(() => Storage.getSettings());
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
+  const { tabs, activeTabId, bookmarks, history, downloads, settings } = state;
+  const activeTab = useMemo(() => getActiveTab(state), [state]);
+  const currentEngine = useMemo(() => getCurrentEngine(state), [state]);
+  const currentIsBookmarked = useMemo(() => isBookmarked(state, activeTab.url), [state, activeTab.url]);
+
+  // UI Overlays State
   const [showMenu, setShowMenu] = useState(false);
   const [showShields, setShowShields] = useState(false);
   const [showFindBar, setShowFindBar] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showTabSwitcher, setShowTabSwitcher] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [windowWidth, setWindowWidth] = useState<number>(() => (typeof window !== 'undefined' ? window.innerWidth : 1200));
 
-  useEffect(() => {
-    if (window.self !== window.top) {
-      window.parent.postMessage({ type: 'xyro-app-embedded' }, '*');
-    }
-  }, []);
-
-  // 2. Active Tab & Engine
-  const activeTab = useMemo(
-    () => tabs.find((t) => t.id === activeTabId) || tabs[0] || {
-      id: 'tab-1',
-      url: 'chrome://newtab',
-      title: 'New Tab',
-      isIncognito: false,
-      pinned: false,
-      history: ['chrome://newtab'],
-      historyIndex: 0,
-      zoom: 100,
-      isLoading: false,
-      isReaderMode: false,
-      autoDarkMode: false,
-      viewSource: false,
-      blockedCount: 0,
-      lastActive: Date.now(),
-    },
-    [tabs, activeTabId]
-  );
-
-  useEffect(() => {
-    if (!tabs.some((tab) => tab.id === activeTabId) && tabs.length > 0) {
-      setActiveTabId(tabs[0].id);
-    }
-  }, [tabs, activeTabId]);
-
-  const currentEngine = useMemo(
-    () => SEARCH_ENGINES.find((e) => e.id === settings.defaultSearchEngine) || SEARCH_ENGINES[0],
-    [settings.defaultSearchEngine]
-  );
-
-  // Advanced features state
-  const [tabGroups, setTabGroups] = useState<TabGroup[]>([]);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string>('default');
-  const [useVerticalTabs, setUseVerticalTabs] = useState<boolean>(() =>
-    Storage.getVerticalTabsEnabled()
-  );
-  const [sidePanel, setSidePanel] = useState<SidePanelState>({
-    isOpen: false,
-    view: 'bookmarks',
-    width: 320,
-  });
-  const [showCommandPalette, setShowCommandPalette] = useState(false);
-  const [splitView, setSplitView] = useState<{ enabled: boolean; tabs: string[] }>({
-    enabled: false,
-    tabs: [],
+  const isElectron = Boolean(typeof window !== 'undefined' && (window as any).xyro?.isElectron);
+  const [showDownloadPortal, setShowDownloadPortal] = useState<boolean>(() => {
+    if (isElectron) return false;
+    if (typeof window === 'undefined') return true;
+    const hash = window.location.hash;
+    const path = window.location.pathname;
+    const search = window.location.search;
+    if (hash === '#browser' || path === '/browser' || search.includes('mode=browser')) return false;
+    if (sessionStorage.getItem('xyro_view_mode') === 'browser') return false;
+    return true;
   });
 
-  // Resolve the system theme to the concrete palette supported by the stylesheet.
+  const isMobile = windowWidth <= 640;
+  const isWide = windowWidth >= 1200;
+  const useVerticalTabs = Boolean(settings.verticalTabs && isWide && !isMobile);
+
+  // Sync theme
   useEffect(() => {
-    const colorScheme = window.matchMedia('(prefers-color-scheme: light)');
-    const applyTheme = () => {
-      const theme = settings.theme === 'system'
-        ? (colorScheme.matches ? 'light' : 'dark')
-        : settings.theme;
-      document.documentElement.setAttribute('data-theme', theme);
-    };
-    applyTheme();
-    colorScheme.addEventListener('change', applyTheme);
-    return () => colorScheme.removeEventListener('change', applyTheme);
+    document.documentElement.setAttribute('data-theme', settings.theme);
   }, [settings.theme]);
 
-  // Window resize listener for mobile ergonomics
+  // Window resize
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 640);
+    const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Sync to localStorage
+  // Debounced Persistence
   useEffect(() => {
     Storage.saveTabs(tabs);
   }, [tabs]);
@@ -183,292 +103,122 @@ export default function App() {
     Storage.saveSettings(settings);
   }, [settings]);
 
-  useEffect(() => {
-    if (window.xyro?.platform === 'electron') {
-      window.xyro.setShieldsEnabled(settings.shieldsEnabled);
-    }
-  }, [settings.shieldsEnabled]);
-
-  // 4. Tab Actions
-  const createNewTab = useCallback((url = 'chrome://newtab', isIncognito = false) => {
-    const newId = 'tab-' + Math.random().toString(36).slice(2, 9);
-    const proxySessionId = isIncognito ? crypto.randomUUID() : browserSessionId;
-    const newTab: Tab = {
-      id: newId,
-      url,
-      proxySessionId,
-      title: url === 'chrome://newtab' ? 'New Tab' : 'Loading...',
-      isIncognito,
-      pinned: false,
-      history: [url],
-      historyIndex: 0,
-      zoom: 100,
-      isLoading: url.startsWith('http'),
-      isReaderMode: false,
-      autoDarkMode: false,
-      viewSource: false,
-      blockedCount: 0,
-      lastActive: Date.now(),
-    };
-    setTabs((prev) => [...prev, newTab]);
-    setActiveTabId(newId);
-  }, [browserSessionId]);
+  // Tab management actions
+  const createNewTab = useCallback((url = 'xyro://newtab', isIncognito = false) => {
+    dispatch({ type: 'CREATE_TAB', url, isIncognito });
+    const engine = getBrowserEngine();
+    engine.createTab(activeTabId, url, isIncognito);
+  }, [activeTabId]);
 
   const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const closedTab = tabs.find((tab) => tab.id === id);
-    if (closedTab?.isIncognito && closedTab.proxySessionId) {
-      const cleanup = window.xyro?.platform === 'electron'
-        ? window.xyro.clearIncognitoSession(id)
-        : fetch('/api/clear-data', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ privateSessionId: closedTab.proxySessionId }),
-          }).then((response) => {
-            if (!response.ok) {
-              throw new Error(`Unable to clear private session data (HTTP ${response.status}).`);
-            }
-          });
-      void cleanup.catch((error) => console.error('Failed to clear private session data:', error));
-    }
-    setTabs((prev) => {
-      const filtered = prev.filter((t) => t.id !== id);
-      if (filtered.length === 0) {
-        const fallback: Tab = {
-          id: 'tab-1',
-          url: 'chrome://newtab',
-          title: 'New Tab',
-          proxySessionId: browserSessionId,
-          isIncognito: false,
-          pinned: false,
-          history: ['chrome://newtab'],
-          historyIndex: 0,
-          zoom: 100,
-          isLoading: false,
-          isReaderMode: false,
-          autoDarkMode: false,
-          viewSource: false,
-          blockedCount: 0,
-          lastActive: Date.now(),
-        };
-        setActiveTabId(fallback.id);
-        return [fallback];
-      }
-      if (id === activeTabId) {
-        const idx = prev.findIndex((t) => t.id === id);
-        const nextActive = filtered[Math.max(0, idx - 1)] || filtered[0];
-        setActiveTabId(nextActive.id);
-      }
-      return filtered;
-    });
-  }, [activeTabId, tabs]);
-
-  const togglePin = useCallback((id: string) => {
-    setTabs((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, pinned: !t.pinned } : t))
-    );
+    dispatch({ type: 'CLOSE_TAB', id });
+    const engine = getBrowserEngine();
+    engine.destroyTab(id);
   }, []);
 
-  // 5. Navigation Action
-  const navigateInTab = useCallback((
-    tabId: string,
-    rawTarget: string,
-    replace = false,
-    preserveDocument = false
-  ) => {
+  const selectTab = useCallback((id: string) => {
+    dispatch({ type: 'SET_ACTIVE_TAB', id });
+    const engine = getBrowserEngine();
+    engine.setActive(id);
+  }, []);
+
+  const togglePin = useCallback((id: string) => {
+    dispatch({ type: 'TOGGLE_PIN', id });
+  }, []);
+
+  // Navigation
+  const navigate = useCallback((rawTarget: string) => {
     const resolved = resolveOmniboxInput(rawTarget, currentEngine);
-    const targetUrl = resolved.url;
+    let targetUrl = resolved.url;
+
+    // Convert legacy chrome:// to xyro://
+    if (targetUrl.startsWith('chrome://')) {
+      targetUrl = targetUrl.replace('chrome://', 'xyro://');
+    }
 
     let newTitle = 'Loading...';
-    if (targetUrl === 'chrome://newtab') newTitle = 'New Tab';
-    else if (targetUrl.startsWith('chrome://search')) {
+    if (targetUrl === 'xyro://newtab') newTitle = 'New Tab';
+    else if (targetUrl.startsWith('xyro://search')) {
       try {
         const q = new URLSearchParams(targetUrl.split('?')[1]).get('q') || 'Search';
         newTitle = `${q} - ${currentEngine.name} Search`;
       } catch {
         newTitle = 'Search Results';
       }
-    } else if (targetUrl === 'chrome://bookmarks') newTitle = 'Bookmarks';
-    else if (targetUrl === 'chrome://history') newTitle = 'History';
-    else if (targetUrl === 'chrome://downloads') newTitle = 'Downloads';
-    else if (targetUrl === 'chrome://settings') newTitle = 'Settings';
-    else if (targetUrl === 'chrome://about') newTitle = 'About XyroBrowse';
+    } else if (targetUrl === 'xyro://bookmarks') newTitle = 'Bookmarks';
+    else if (targetUrl === 'xyro://history') newTitle = 'History';
+    else if (targetUrl === 'xyro://downloads') newTitle = 'Downloads';
+    else if (targetUrl === 'xyro://download') newTitle = 'Download XyroBrowse';
+    else if (targetUrl === 'xyro://settings') newTitle = 'Settings';
+    else if (targetUrl === 'xyro://about') newTitle = 'About XyroBrowse';
     else if (targetUrl.startsWith('view-source:')) newTitle = `view-source:${targetUrl.slice(12)}`;
 
-    setTabs((prev) =>
-      prev.map((t) => {
-        if (t.id === tabId) {
-          if (preserveDocument && t.url === targetUrl) return t;
-          const currentHist = t.history.slice(0, t.historyIndex + 1);
-          const newHist = replace
-            ? [...currentHist.slice(0, -1), targetUrl]
-            : [...currentHist, targetUrl];
-          return {
-            ...t,
-            url: targetUrl,
-            contentUrl: preserveDocument ? t.contentUrl : targetUrl,
-            title: newTitle,
-            history: newHist,
-            historyIndex: Math.max(0, newHist.length - 1),
-            isLoading: targetUrl.startsWith('http'),
-            isReaderMode: false,
-            readerContent: undefined,
-            blockedCount: 0,
-          };
-        }
-        return t;
-      })
-    );
+    dispatch({ type: 'NAVIGATE_TAB', id: activeTabId, targetUrl, newTitle });
 
-    // Save to history if not incognito and not an internal page
-    const targetTab = tabs.find((tab) => tab.id === tabId);
-    if (!replace && targetTab && !targetTab.isIncognito && targetUrl.startsWith('http')) {
+    // Inform browser engine
+    const engine = getBrowserEngine();
+    engine.navigate(activeTabId, targetUrl);
+
+    // Save to history if external
+    if (!activeTab.isIncognito && targetUrl.startsWith('http')) {
       const histItem: HistoryItem = {
         id: 'hist-' + Math.random().toString(36).slice(2, 9),
         url: targetUrl,
         title: rawTarget,
         visitTime: Date.now(),
       };
-      setHistory((prev) => [histItem, ...prev]);
+      dispatch({ type: 'ADD_HISTORY', item: histItem });
     }
-  }, [currentEngine, tabs]);
+  }, [activeTabId, activeTab.isIncognito, currentEngine]);
 
-  const navigate = useCallback((rawTarget: string) => {
-    navigateInTab(activeTabId, rawTarget);
-  }, [activeTabId, navigateInTab]);
-
-  // Back / Forward / Reload
   const goBack = useCallback(() => {
+    const engine = getBrowserEngine();
+    engine.back(activeTabId);
     if (activeTab.historyIndex > 0) {
       const newIdx = activeTab.historyIndex - 1;
       const targetUrl = activeTab.history[newIdx];
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === activeTabId
-            ? {
-                ...t,
-                url: targetUrl,
-                contentUrl: targetUrl,
-                historyIndex: newIdx,
-                isReaderMode: false,
-                isLoading: targetUrl.startsWith('http'),
-              }
-            : t
-        )
-      );
+      dispatch({
+        type: 'UPDATE_TAB',
+        id: activeTabId,
+        patch: { url: targetUrl, historyIndex: newIdx, isReaderMode: false },
+      });
     }
   }, [activeTab, activeTabId]);
 
   const goForward = useCallback(() => {
+    const engine = getBrowserEngine();
+    engine.forward(activeTabId);
     if (activeTab.historyIndex < activeTab.history.length - 1) {
       const newIdx = activeTab.historyIndex + 1;
       const targetUrl = activeTab.history[newIdx];
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === activeTabId
-            ? {
-                ...t,
-                url: targetUrl,
-                contentUrl: targetUrl,
-                historyIndex: newIdx,
-                isReaderMode: false,
-                isLoading: targetUrl.startsWith('http'),
-              }
-            : t
-        )
-      );
+      dispatch({
+        type: 'UPDATE_TAB',
+        id: activeTabId,
+        patch: { url: targetUrl, historyIndex: newIdx, isReaderMode: false },
+      });
     }
   }, [activeTab, activeTabId]);
 
   const reload = useCallback(() => {
-    if (!activeTab.url.startsWith('http')) return;
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.id === activeTabId
-          ? {
-              ...t,
-              contentUrl: t.url,
-              isLoading: true,
-              reloadKey: (t.reloadKey || 0) + 1,
-            }
-          : t
-      )
-    );
-  }, [activeTab.url, activeTabId]);
-
-  const updateSettings = useCallback((nextSettings: BrowserSettings) => {
-    if (nextSettings.shieldsEnabled !== settings.shieldsEnabled && activeTab.url.startsWith('http')) {
-      setTabs((prev) =>
-        prev.map((tab) =>
-          tab.id === activeTabId
-            ? {
-                ...tab,
-                contentUrl: tab.url,
-                isLoading: true,
-                reloadKey: (tab.reloadKey || 0) + 1,
-              }
-            : tab
-        )
-      );
-    }
-    setSettings(nextSettings);
-  }, [activeTab.id, activeTab.url, activeTabId, settings.shieldsEnabled]);
-
-  const stopLoading = useCallback(() => {
-    const frame = document.querySelector<HTMLIFrameElement>(
-      `iframe[data-tab-id="${activeTabId}"]`
-    );
-    frame?.contentWindow?.stop();
-    const webview = document.querySelector<HTMLElement & { stop?: () => void }>(
-      `webview[data-tab-id="${activeTabId}"]`
-    );
-    webview?.stop?.();
-    setTabs((prev) =>
-      prev.map((t) => (t.id === activeTabId ? { ...t, isLoading: false } : t))
-    );
+    const engine = getBrowserEngine();
+    engine.reload(activeTabId);
+    dispatch({ type: 'UPDATE_TAB', id: activeTabId, patch: { isLoading: true } });
   }, [activeTabId]);
 
-  // 6. Reader Mode
-  const toggleReaderMode = useCallback(async () => {
-    if (activeTab.isReaderMode) {
-      setTabs((prev) =>
-        prev.map((t) => (t.id === activeTabId ? { ...t, isReaderMode: false } : t))
-      );
-      return;
-    }
+  const stopLoading = useCallback(() => {
+    const engine = getBrowserEngine();
+    engine.stop(activeTabId);
+    dispatch({ type: 'UPDATE_TAB', id: activeTabId, patch: { isLoading: false } });
+  }, [activeTabId]);
 
-    if (!activeTab.url.startsWith('http')) return;
-
-    try {
-      const readerParams = new URLSearchParams({ url: activeTab.url });
-      if (activeTab.proxySessionId) {
-        readerParams.set('__xyro_sid', activeTab.proxySessionId);
-      }
-      if (!settings.shieldsEnabled) readerParams.set('__xyro_shields', 'off');
-      const res = await fetch(`/api/reader?${readerParams}`);
-      if (res.ok) {
-        const article = await res.json();
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.id === activeTabId
-              ? { ...t, isReaderMode: true, readerContent: article }
-              : t
-          )
-        );
-      }
-    } catch {
-      // Failed to extract reader mode
-    }
-  }, [activeTab, activeTabId, settings.shieldsEnabled]);
-
-  // 7. Bookmarking
-  const isCurrentBookmarked = useMemo(() => {
-    return bookmarks.some((b) => b.url === activeTab.url);
-  }, [bookmarks, activeTab.url]);
-
+  // Bookmarking
   const toggleBookmark = useCallback(() => {
-    if (isCurrentBookmarked) {
-      setBookmarks((prev) => prev.filter((b) => b.url !== activeTab.url));
+    if (currentIsBookmarked) {
+      const existing = bookmarks.find((b) => b.url === activeTab.url);
+      if (existing) {
+        dispatch({ type: 'DELETE_BOOKMARK', id: existing.id });
+      }
     } else {
       const newBm: BookmarkNode = {
         id: 'bm-' + Math.random().toString(36).slice(2, 9),
@@ -476,117 +226,58 @@ export default function App() {
         url: activeTab.url,
         dateAdded: Date.now(),
       };
-      setBookmarks((prev) => [...prev, newBm]);
+      dispatch({ type: 'ADD_BOOKMARK', bookmark: newBm });
     }
-  }, [isCurrentBookmarked, activeTab]);
+  }, [currentIsBookmarked, bookmarks, activeTab]);
 
-  // 8. Zoom Controls
+  // Zoom
   const handleZoom = useCallback((delta: number) => {
-    setTabs((prev) =>
-      prev.map((t) => {
-        if (t.id === activeTabId) {
-          const nextZoom = Math.min(500, Math.max(25, t.zoom + delta));
-          return { ...t, zoom: nextZoom };
-        }
-        return t;
-      })
-    );
-  }, [activeTabId]);
+    const nextZoom = Math.min(500, Math.max(25, activeTab.zoom + delta));
+    dispatch({ type: 'UPDATE_TAB', id: activeTabId, patch: { zoom: nextZoom } });
+    const engine = getBrowserEngine();
+    engine.setZoom(activeTabId, nextZoom / 100);
+  }, [activeTab.zoom, activeTabId]);
 
   const resetZoom = useCallback(() => {
-    setTabs((prev) =>
-      prev.map((t) => (t.id === activeTabId ? { ...t, zoom: 100 } : t))
-    );
+    dispatch({ type: 'UPDATE_TAB', id: activeTabId, patch: { zoom: 100 } });
+    const engine = getBrowserEngine();
+    engine.setZoom(activeTabId, 1);
   }, [activeTabId]);
 
-  // 9. Fullscreen
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
+  // Reader Mode
+  const toggleReaderMode = useCallback(async () => {
+    if (activeTab.isReaderMode) {
+      dispatch({ type: 'UPDATE_TAB', id: activeTabId, patch: { isReaderMode: false } });
+      return;
     }
+    if (!activeTab.url.startsWith('http')) return;
+
+    try {
+      const res = await fetch(`/api/reader?url=${encodeURIComponent(activeTab.url)}`);
+      if (res.ok) {
+        const article = await res.json();
+        dispatch({
+          type: 'UPDATE_TAB',
+          id: activeTabId,
+          patch: { isReaderMode: true, readerContent: article },
+        });
+      }
+    } catch {}
+  }, [activeTab, activeTabId]);
+
+  // Downloads
+  const handleDownload = useCallback(async (url: string) => {
+    const item = await downloadFile(url);
+    dispatch({ type: 'ADD_DOWNLOAD', item });
   }, []);
 
-  // 10. Downloads
-  const handleDownload = useCallback(async (url: string) => {
-    const item = await downloadFile(
-      url,
-      activeTab.proxySessionId,
-      settings.shieldsEnabled
-    );
-    if (!activeTab.isIncognito) setDownloads((prev) => [item, ...prev]);
-  }, [activeTab.isIncognito, activeTab.proxySessionId, settings.shieldsEnabled]);
-
-  const printPage = useCallback(() => {
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      `iframe[data-tab-id="${activeTabId}"]`
-    );
-    if (iframe) {
-      iframe.contentWindow?.postMessage({ type: 'xyro-print' }, '*');
-      return;
-    }
-
-    const webview = document.querySelector<HTMLElement & { print?: () => void }>(
-      `webview[data-tab-id="${activeTabId}"]`
-    );
-    if (webview?.print) {
-      webview.print();
-      return;
-    }
-    window.print();
-  }, [activeTabId]);
-
-  const findInPage = useCallback((text: string, backwards = false) => {
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      `iframe[data-tab-id="${activeTabId}"]`
-    );
-    iframe?.contentWindow?.postMessage(
-      { type: text ? 'xyro-find' : 'xyro-stop-find', text, backwards },
-      '*'
-    );
-
-    const webview = document.querySelector<HTMLElement & {
-      findInPage?: (text: string, options?: { forward?: boolean }) => void;
-      stopFindInPage?: (action: 'clearSelection') => void;
-    }>(`webview[data-tab-id="${activeTabId}"]`);
-    if (text) webview?.findInPage?.(text, { forward: !backwards });
-    else webview?.stopFindInPage?.('clearSelection');
-  }, [activeTabId]);
-
-  // 11. Clear Data
-  const handleClearData = useCallback(async (options: {
+  // Clear Browsing Data
+  const handleClearData = useCallback((options: {
     timeRange: 'hour' | '24h' | '7d' | 'all';
     clearHistory: boolean;
     clearCookies: boolean;
     clearCache: boolean;
   }) => {
-    if (options.clearCookies || options.clearCache) {
-      if (window.xyro?.platform === 'electron') {
-        await window.xyro.clearBrowsingData({
-          clearCookies: options.clearCookies,
-          clearCache: options.clearCache,
-        });
-      } else {
-        const response = await fetch('/api/clear-data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clearCookies: options.clearCookies,
-            clearCache: options.clearCache,
-            sessionId: browserSessionId,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(`Unable to clear site data (HTTP ${response.status}).`);
-        }
-        if (options.clearCache && 'caches' in window) {
-          const cacheNames = await window.caches.keys();
-          await Promise.all(cacheNames.map((cacheName) => window.caches.delete(cacheName)));
-        }
-      }
-    }
-
     if (options.clearHistory) {
       const now = Date.now();
       const cutoff =
@@ -598,38 +289,22 @@ export default function App() {
           ? now - 7 * 86400000
           : 0;
 
-      setHistory((prev) => prev.filter((h) => h.visitTime < cutoff));
+      const filtered = history.filter((h) => h.visitTime < cutoff);
+      dispatch({ type: 'SET_HISTORY', history: filtered });
+    }
+  }, [history]);
+
+  // Fullscreen
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
     }
   }, []);
 
-  // 12. Global Keyboard Shortcuts
-  const handleKeyShortcut = useCallback((
-    key: string,
-    ctrl: boolean,
-    shift: boolean,
-    alt = false
-  ) => {
-    if (key === 'F11') {
-      toggleFullscreen();
-      return;
-    }
-    if (key === 'F5') {
-      reload();
-      return;
-    }
-    if (key === 'Escape') {
-      if (activeTab.isLoading) stopLoading();
-      else {
-        findInPage('');
-        setShowFindBar(false);
-      }
-      return;
-    }
-    if (alt) {
-      if (key === 'ArrowLeft') goBack();
-      if (key === 'ArrowRight') goForward();
-      return;
-    }
+  // Keyboard Shortcuts
+  const handleKeyShortcut = useCallback((key: string, ctrl: boolean, shift: boolean) => {
     if (ctrl) {
       switch (key.toLowerCase()) {
         case 't':
@@ -639,16 +314,8 @@ export default function App() {
           closeTab(activeTabId);
           break;
         case 'n':
-          if (shift) createNewTab('chrome://newtab', true);
+          if (shift) createNewTab('xyro://newtab', true);
           break;
-        case 'l': {
-          const omnibox = document.querySelector<HTMLInputElement>(
-            '.chrome-omnibox-input, .chrome-mobile-address input'
-          );
-          omnibox?.focus();
-          omnibox?.select();
-          break;
-        }
         case 'r':
           reload();
           break;
@@ -656,19 +323,19 @@ export default function App() {
           setShowFindBar((prev) => !prev);
           break;
         case 'p':
-          printPage();
+          window.print();
           break;
         case 'd':
           toggleBookmark();
           break;
         case 'h':
-          navigate('chrome://history');
+          navigate('xyro://history');
           break;
         case 'j':
-          navigate('chrome://downloads');
+          navigate('xyro://downloads');
           break;
         case 'o':
-          if (shift) navigate('chrome://bookmarks');
+          if (shift) navigate('xyro://bookmarks');
           break;
         case '=':
         case '+':
@@ -682,384 +349,284 @@ export default function App() {
           break;
       }
     }
-  }, [
-    toggleFullscreen,
-    reload,
-    activeTab.isLoading,
-    stopLoading,
-    findInPage,
-    goBack,
-    goForward,
-    createNewTab,
-    closeTab,
-    activeTabId,
-    printPage,
-    toggleBookmark,
-    navigate,
-    handleZoom,
-    resetZoom,
-  ]);
+  }, [createNewTab, closeTab, activeTabId, reload, toggleBookmark, navigate, handleZoom, resetZoom]);
 
-  // Advanced features
-  const toggleVerticalTabs = useCallback(() => {
-    setUseVerticalTabs(prev => {
-      const newValue = !prev;
-      Storage.saveVerticalTabsEnabled(newValue);
-      return newValue;
-    });
-  }, []);
-
-  const createTabGroup = useCallback(() => {
-    const groupId = 'group-' + Math.random().toString(36).slice(2, 9);
-    const newGroup: TabGroup = {
-      id: groupId,
-      name: 'New Group',
-      color: ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'][Math.floor(Math.random() * 5)],
-      collapsed: false,
-      tabIds: [],
-    };
-    setTabGroups(prev => [...prev, newGroup]);
-  }, []);
-
-  const toggleTabGroup = useCallback((groupId: string) => {
-    setTabGroups(prev => 
-      prev.map(g => g.id === groupId ? { ...g, collapsed: !g.collapsed } : g)
-    );
-  }, []);
-
-  const toggleSidePanel = useCallback((view?: SidePanelView) => {
-    setSidePanel(prev => ({
-      ...prev,
-      isOpen: view ? (prev.view === view ? !prev.isOpen : true) : !prev.isOpen,
-      view: view || prev.view,
-    }));
-  }, []);
-
-  const generateCommands = useCallback((): CommandItem[] => [
-    {
-      id: 'new-tab',
-      title: 'New Tab',
-      description: 'Open a new tab',
-      shortcut: '⌘+T',
-      category: 'tabs',
-      action: () => createNewTab(),
-    },
-    {
-      id: 'new-incognito',
-      title: 'New Incognito Window',
-      description: 'Open a private browsing window',
-      shortcut: '⌘+Shift+N',
-      category: 'tabs',
-      action: () => createNewTab('chrome://newtab', true),
-    },
-    {
-      id: 'close-tab',
-      title: 'Close Current Tab',
-      shortcut: '⌘+W',
-      category: 'tabs',
-      action: () => closeTab(activeTabId),
-    },
-    {
-      id: 'go-home',
-      title: 'Go Home',
-      category: 'navigation',
-      action: () => navigate(settings.homePage),
-    },
-    {
-      id: 'bookmarks',
-      title: 'Show Bookmarks',
-      shortcut: '⌘+Shift+O',
-      category: 'bookmarks',
-      action: () => toggleSidePanel('bookmarks'),
-    },
-    {
-      id: 'history',
-      title: 'Show History',
-      shortcut: '⌘+Y',
-      category: 'navigation',
-      action: () => toggleSidePanel('history'),
-    },
-    {
-      id: 'ai-assistant',
-      title: 'AI Assistant',
-      category: 'ai',
-      action: () => toggleSidePanel('ai'),
-    },
-    {
-      id: 'settings',
-      title: 'Settings',
-      category: 'settings',
-      action: () => navigate('chrome://settings'),
-    },
-    {
-      id: 'toggle-vertical-tabs',
-      title: useVerticalTabs ? 'Switch to Horizontal Tabs' : 'Switch to Vertical Tabs',
-      category: 'tabs',
-      action: toggleVerticalTabs,
-    },
-    {
-      id: 'reload',
-      title: 'Reload Page',
-      shortcut: '⌘+R',
-      category: 'navigation',
-      action: reload,
-    },
-    {
-      id: 'find',
-      title: 'Find in Page',
-      shortcut: '⌘+F',
-      category: 'tools',
-      action: () => setShowFindBar(true),
-    },
-  ], [createNewTab, closeTab, activeTabId, navigate, settings.homePage, toggleSidePanel, useVerticalTabs, toggleVerticalTabs, reload]);
-
-  // Keyboard shortcuts for command palette
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setShowCommandPalette(true);
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const ctrl = isMac ? e.metaKey : e.ctrlKey;
+      if (ctrl || e.key === 'F11') {
+        if (e.key === 'F11') {
+          e.preventDefault();
+          toggleFullscreen();
+        } else {
+          handleKeyShortcut(e.key, ctrl, e.shiftKey);
+        }
       }
     };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyShortcut, toggleFullscreen]);
 
+  // Engine event subscriptions
   useEffect(() => {
-    const unsubscribe = window.xyro?.on(
-      'engine-event',
-      (
-        eventName: string,
-        payload?: {
-          url?: string;
-          key?: string;
-          ctrlKey?: boolean;
-          metaKey?: boolean;
-          shiftKey?: boolean;
-          altKey?: boolean;
-        }
-      ) => {
-        if (eventName === 'newTab') createNewTab(payload?.url || 'chrome://newtab');
-        else if (eventName === 'newIncognito') createNewTab('chrome://newtab', true);
-        else if (eventName === 'openAbout') navigate('chrome://about');
-        else if (eventName === 'reloadHard') reload();
-        else if (eventName === 'shortcut' && payload?.key) {
-          handleKeyShortcut(
-            payload.key,
-            !!(payload.ctrlKey || payload.metaKey),
-            !!payload.shiftKey,
-            !!payload.altKey
-          );
-        }
-      }
-    );
-    return () => unsubscribe?.();
-  }, [createNewTab, handleKeyShortcut, navigate, reload]);
+    const engine = getBrowserEngine();
 
-  const commands = useMemo(() => generateCommands(), [generateCommands]);
+    const handleNavigated = (payload: any) => {
+      if (payload.tabId && payload.url) {
+        dispatch({
+          type: 'UPDATE_TAB',
+          id: payload.tabId,
+          patch: {
+            url: payload.url,
+            isLoading: false,
+          },
+        });
+      }
+    };
+
+    const handleLoading = (payload: any) => {
+      if (payload.tabId) {
+        dispatch({
+          type: 'UPDATE_TAB',
+          id: payload.tabId,
+          patch: { isLoading: Boolean(payload.isLoading) },
+        });
+      }
+    };
+
+    const handleTitle = (payload: any) => {
+      if (payload.tabId && payload.title) {
+        dispatch({
+          type: 'UPDATE_TAB',
+          id: payload.tabId,
+          patch: { title: payload.title },
+        });
+      }
+    };
+
+    const handleBlocked = (payload: any) => {
+      if (payload.tabId && typeof payload.count === 'number') {
+        dispatch({
+          type: 'UPDATE_TAB',
+          id: payload.tabId,
+          patch: { blockedCount: payload.count },
+        });
+      }
+    };
+
+    const handleNewTab = (payload: any) => {
+      createNewTab(payload.url || 'xyro://newtab');
+    };
+
+    const handleShortcut = (payload: any) => {
+      handleKeyShortcut(payload.key, payload.ctrlKey || payload.metaKey, payload.shiftKey);
+    };
+
+    engine.on('navigated', handleNavigated);
+    engine.on('loading', handleLoading);
+    engine.on('title', handleTitle);
+    engine.on('blocked', handleBlocked);
+    engine.on('newTab', handleNewTab);
+    engine.on('shortcut', handleShortcut);
+
+    return () => {
+      engine.off('navigated', handleNavigated);
+      engine.off('loading', handleLoading);
+      engine.off('title', handleTitle);
+      engine.off('blocked', handleBlocked);
+      engine.off('newTab', handleNewTab);
+      engine.off('shortcut', handleShortcut);
+    };
+  }, [createNewTab, handleKeyShortcut]);
+
+  if (showDownloadPortal) {
+    return (
+      <DownloadPortal
+        onLaunchWeb={() => {
+          setShowDownloadPortal(false);
+          sessionStorage.setItem('xyro_view_mode', 'browser');
+        }}
+      />
+    );
+  }
 
   return (
-    <div className="chrome-browser-shell">
-      {!window.matchMedia('(display-mode: standalone)').matches && window.xyro?.platform !== 'electron' && (
-        <a
-          href="/download.html"
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 12,
-            zIndex: 1000,
-            color: 'var(--chrome-text-secondary)',
-            fontSize: 12,
-            textDecoration: 'none',
-          }}
-        >
-          Download XyroBrowse
-        </a>
+    <div className="xyro-browser-shell">
+      {/* 1. Horizontal Tab Strip (Desktop only, if not vertical tabs) */}
+      {!isMobile && !useVerticalTabs && (
+        <MemoizedTabStrip
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelectTab={selectTab}
+          onCloseTab={closeTab}
+          onNewTab={() => createNewTab()}
+          onTogglePin={togglePin}
+        />
       )}
-      {/* Layout Container */}
-      <div style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-        {/* Vertical Tabs Sidebar */}
-        {!isMobile && useVerticalTabs && (
-          <VerticalTabs
-            tabs={tabs}
-            tabGroups={tabGroups}
-            activeTabId={activeTabId}
-            onSelectTab={setActiveTabId}
-            onCloseTab={closeTab}
-            onNewTab={() => createNewTab()}
-            onTogglePin={togglePin}
-            onCreateGroup={createTabGroup}
-            onToggleGroup={toggleTabGroup}
-            onAddToGroup={() => {}}
-          />
+
+      {/* 2. Navigation Toolbar */}
+      {(!isMobile || settings.mobileToolbarPosition === 'top') && (
+        <MemoizedToolbar
+          url={activeTab.url}
+          canGoBack={activeTab.historyIndex > 0}
+          canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
+          isLoading={activeTab.isLoading}
+          blockedCount={activeTab.blockedCount}
+          isBookmarked={currentIsBookmarked}
+          isReaderMode={activeTab.isReaderMode}
+          canReaderMode={activeTab.url.startsWith('http')}
+          currentEngine={currentEngine}
+          history={history}
+          bookmarks={bookmarks}
+          onBack={goBack}
+          onForward={goForward}
+          onReload={reload}
+          onStop={stopLoading}
+          onHome={() => navigate('xyro://newtab')}
+          onNavigate={navigate}
+          onToggleBookmark={toggleBookmark}
+          onToggleReaderMode={toggleReaderMode}
+          onChangeEngine={(eng) => dispatch({ type: 'UPDATE_SETTINGS', patch: { defaultSearchEngine: eng.id } })}
+          onToggleShields={() => setShowShields(!showShields)}
+          onOpenDownloads={() => navigate('xyro://downloads')}
+          onOpenDownloadPortal={() => setShowDownloadPortal(true)}
+          onToggleMenu={() => setShowMenu(!showMenu)}
+        />
+      )}
+
+      {/* 3. Bookmarks Bar */}
+      {!isMobile && settings.showBookmarksBar && (
+        <MemoizedBookmarksBar
+          bookmarks={bookmarks}
+          onNavigate={navigate}
+          onOpenManager={() => navigate('xyro://bookmarks')}
+        />
+      )}
+
+      {/* 4. Main Body: Horizontal Layout if Vertical Tabs, otherwise Viewport */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'row', position: 'relative', overflow: 'hidden' }}>
+        {useVerticalTabs && (
+          <div className="xyro-vertical-sidebar">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--xyro-text-secondary)' }}>
+                Tabs ({tabs.length})
+              </span>
+              <button
+                className="chrome-btn-icon"
+                onClick={() => createNewTab()}
+                title="New Tab (Ctrl+T)"
+                style={{ width: 24, height: 24 }}
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            {tabs.map((t) => (
+              <div
+                key={t.id}
+                className={`xyro-vertical-tab ${t.id === activeTabId ? 'active' : ''}`}
+                onClick={() => selectTab(t.id)}
+              >
+                <Globe size={14} style={{ marginRight: 8, flexShrink: 0, color: 'var(--xyro-text-secondary)' }} />
+                <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {t.title}
+                </span>
+                <button
+                  className="chrome-tab-close"
+                  onClick={(e) => closeTab(t.id, e)}
+                  title="Close Tab"
+                  style={{ marginLeft: 6 }}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
         )}
 
-        {/* Main Content Area */}
-        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* 1. Desktop Tab Strip */}
-          {!isMobile && !useVerticalTabs && (
-            <TabStrip
-              tabs={tabs}
-              activeTabId={activeTabId}
-              onSelectTab={setActiveTabId}
-              onCloseTab={closeTab}
-              onNewTab={() => createNewTab()}
-              onTogglePin={togglePin}
-            />
-          )}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <Viewport
+            tabs={tabs}
+            activeTabId={activeTabId}
+            tab={activeTab}
+            currentEngine={currentEngine}
+            bookmarks={bookmarks}
+            history={history}
+            downloads={downloads}
+            settings={settings}
+            onNavigate={navigate}
+            onUpdateTitle={(title, tabId) =>
+              dispatch({ type: 'UPDATE_TAB', id: tabId || activeTabId, patch: { title } })
+            }
+            onUpdateFavicon={(favicon, tabId) =>
+              dispatch({ type: 'UPDATE_TAB', id: tabId || activeTabId, patch: { favicon } })
+            }
+            onUpdateNavState={(tabId, url, canGoBack, canGoForward) => {
+              dispatch({
+                type: 'UPDATE_TAB',
+                id: tabId,
+                patch: { url },
+              });
+            }}
+            onUpdateLoading={(tabId, isLoading) =>
+              dispatch({ type: 'UPDATE_TAB', id: tabId, patch: { isLoading } })
+            }
+            onUpdateBlockedCount={(blockedCount, tabId) =>
+              dispatch({ type: 'UPDATE_TAB', id: tabId || activeTabId, patch: { blockedCount } })
+            }
+            onContextMenu={setContextMenu}
+            onKeyShortcut={handleKeyShortcut}
+            onAddBookmark={(title, url) => {
+              const newBm: BookmarkNode = {
+                id: 'bm-' + Math.random().toString(36).slice(2, 9),
+                title,
+                url,
+                dateAdded: Date.now(),
+              };
+              dispatch({ type: 'ADD_BOOKMARK', bookmark: newBm });
+            }}
+            onDeleteBookmark={(id) => dispatch({ type: 'DELETE_BOOKMARK', id })}
+            onImportBookmarks={(imported) => dispatch({ type: 'SET_BOOKMARKS', bookmarks: [...bookmarks, ...imported] })}
+            onDeleteHistoryItem={(id) => dispatch({ type: 'DELETE_HISTORY', id })}
+            onClearHistory={() => dispatch({ type: 'CLEAR_HISTORY' })}
+            onClearDownloads={() => dispatch({ type: 'CLEAR_DOWNLOADS' })}
+            onUpdateSettings={(newSettings) => dispatch({ type: 'SET_SETTINGS', settings: newSettings })}
+            onOpenClearDialog={() => setShowClearDialog(true)}
+            onExitReaderMode={() =>
+              dispatch({ type: 'UPDATE_TAB', id: activeTabId, patch: { isReaderMode: false } })
+            }
+          />
 
-          {/* 2. Navigation Toolbar */}
-          {(!isMobile || settings.mobileToolbarPosition === 'top') && (
-            <Toolbar
-              url={activeTab.url}
-              canGoBack={activeTab.historyIndex > 0}
-              canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
-              isLoading={activeTab.isLoading}
-              blockedCount={activeTab.blockedCount}
-              isBookmarked={isCurrentBookmarked}
-              isReaderMode={activeTab.isReaderMode}
-              canReaderMode={activeTab.url.startsWith('http')}
-              currentEngine={currentEngine}
-              history={history}
-              bookmarks={bookmarks}
-              onBack={goBack}
-              onForward={goForward}
-              onReload={reload}
-              onStop={stopLoading}
-              onHome={() => navigate(settings.homePage)}
-              onNavigate={navigate}
-              onToggleBookmark={toggleBookmark}
-              onToggleReaderMode={toggleReaderMode}
-              onChangeEngine={(eng) => setSettings({ ...settings, defaultSearchEngine: eng.id })}
-              onToggleShields={() => setShowShields((visible) => !visible)}
-              onOpenDownloads={() => navigate('chrome://downloads')}
-              onToggleMenu={() => setShowMenu((visible) => !visible)}
-            />
-          )}
-
-          {/* 3. Bookmarks Bar (desktop only) */}
-          {!isMobile && settings.showBookmarksBar && (
-            <BookmarksBar
-              bookmarks={bookmarks}
-              onNavigate={navigate}
-              onOpenManager={() => navigate('chrome://bookmarks')}
-            />
-          )}
-
-          {/* 4. Main Viewport */}
-          <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-            <Viewport
-              tabs={tabs}
-              activeTabId={activeTabId}
-              tab={activeTab}
-              currentEngine={currentEngine}
-              bookmarks={bookmarks}
-              history={history}
-              downloads={downloads}
-              settings={settings}
-              onNavigate={navigate}
-              onRetry={reload}
-              onNavigateInTab={navigateInTab}
-              onOpenNewTab={(url) => createNewTab(url)}
-              onUpdateTabTitle={(tabId, title) =>
-                setTabs((prev) =>
-                  prev.map((t) => (t.id === tabId ? { ...t, title } : t))
-                )
-              }
-              onUpdateTabFavicon={(tabId, favicon) =>
-                setTabs((prev) =>
-                  prev.map((t) => (t.id === tabId ? { ...t, favicon } : t))
-                )
-              }
-              onUpdateTabBlockedCount={(tabId, blockedCount) =>
-                setTabs((prev) =>
-                  prev.map((t) => (t.id === tabId ? { ...t, blockedCount } : t))
-                )
-              }
-              onUpdateTabLoading={(tabId, isLoading) =>
-                setTabs((prev) =>
-                  prev.map((t) => (t.id === tabId ? { ...t, isLoading } : t))
-                )
-              }
-              onContextMenu={setContextMenu}
-              onKeyShortcut={handleKeyShortcut}
-              onAddBookmark={(title, url) => {
-                const newBm: BookmarkNode = {
-                  id: 'bm-' + Math.random().toString(36).slice(2, 9),
-                  title,
-                  url,
-                  dateAdded: Date.now(),
-                };
-                setBookmarks((prev) => [...prev, newBm]);
+          {showFindBar && (
+            <FindBar
+              onFind={(text) => {
+                const engine = getBrowserEngine();
+                engine.find(activeTabId, text);
               }}
-              onDeleteBookmark={(id) => setBookmarks((prev) => prev.filter((b) => b.id !== id))}
-              onImportBookmarks={(imported) => setBookmarks((prev) => [...prev, ...imported])}
-              onDeleteHistoryItem={(id) => setHistory((prev) => prev.filter((h) => h.id !== id))}
-              onClearHistory={() => setHistory([])}
-              onClearDownloads={() => setDownloads([])}
-              onUpdateSettings={updateSettings}
-              onOpenClearDialog={() => setShowClearDialog(true)}
-              onExitReaderMode={() =>
-                setTabs((prev) =>
-                  prev.map((t) => (t.id === activeTabId ? { ...t, isReaderMode: false } : t))
-                )
-              }
-            />
-
-            {/* Floating Find in Page Bar */}
-            {showFindBar && (
-              <FindBar
-                onFind={findInPage}
-                onClose={() => {
-                  findInPage('');
-                  setShowFindBar(false);
-                }}
-              />
-            )}
-          </div>
-
-          {/* 5. Mobile Bottom Bar */}
-          {isMobile && settings.mobileToolbarPosition === 'bottom' && (
-            <MobileBottomBar
-              canGoBack={activeTab.historyIndex > 0}
-              canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
-              tabCount={tabs.length}
-              url={activeTab.url}
-              isLoading={activeTab.isLoading}
-              onBack={goBack}
-              onForward={goForward}
-              onHome={() => navigate(settings.homePage)}
-              onNewTab={() => createNewTab()}
-              onOpenTabSwitcher={() => setShowTabSwitcher(true)}
-              onToggleMenu={() => setShowMenu((visible) => !visible)}
-              onNavigate={navigate}
-              onReload={reload}
-              onStop={stopLoading}
+              onClose={() => {
+                const engine = getBrowserEngine();
+                engine.stopFind(activeTabId);
+                setShowFindBar(false);
+              }}
             />
           )}
         </div>
-
-        {/* Side Panel */}
-        <SidePanel
-          isOpen={sidePanel.isOpen}
-          view={sidePanel.view}
-          width={sidePanel.width}
-          bookmarks={bookmarks}
-          history={history}
-          downloads={downloads}
-          onClose={() => setSidePanel(prev => ({ ...prev, isOpen: false }))}
-          onNavigate={navigate}
-          onViewChange={(view) => setSidePanel(prev => ({ ...prev, view }))}
-          onWidthChange={(width) => setSidePanel(prev => ({ ...prev, width }))}
-        />
       </div>
 
-      {/* Command Palette */}
-      <CommandPalette
-        isOpen={showCommandPalette}
-        onClose={() => setShowCommandPalette(false)}
-        commands={commands}
-      />
+      {/* 5. Mobile Bottom Bar */}
+      {isMobile && settings.mobileToolbarPosition === 'bottom' && (
+        <MobileBottomBar
+          canGoBack={activeTab.historyIndex > 0}
+          canGoForward={activeTab.historyIndex < activeTab.history.length - 1}
+          tabCount={tabs.length}
+          onBack={goBack}
+          onForward={goForward}
+          onHome={() => navigate('xyro://newtab')}
+          onNewTab={() => createNewTab()}
+          onOpenTabSwitcher={() => setShowTabSwitcher(true)}
+          onToggleMenu={() => setShowMenu(!showMenu)}
+        />
+      )}
 
       {/* 6. Overlays */}
       {showMenu && (
@@ -1067,26 +634,23 @@ export default function App() {
           zoom={activeTab.zoom}
           autoDarkMode={activeTab.autoDarkMode}
           onNewTab={() => createNewTab()}
-          onNewIncognitoTab={() => createNewTab('chrome://newtab', true)}
-          onOpenBookmarks={() => navigate('chrome://bookmarks')}
-          onOpenHistory={() => navigate('chrome://history')}
-          onOpenDownloads={() => navigate('chrome://downloads')}
+          onNewIncognitoTab={() => createNewTab('xyro://newtab', true)}
+          onOpenBookmarks={() => navigate('xyro://bookmarks')}
+          onOpenHistory={() => navigate('xyro://history')}
+          onOpenDownloads={() => navigate('xyro://downloads')}
           onFindInPage={() => setShowFindBar(true)}
-          onPrint={printPage}
+          onPrint={() => window.print()}
           onZoomIn={() => handleZoom(10)}
           onZoomOut={() => handleZoom(-10)}
           onResetZoom={resetZoom}
           onToggleFullscreen={toggleFullscreen}
           onToggleAutoDarkMode={() =>
-            setTabs((prev) =>
-              prev.map((t) =>
-                t.id === activeTabId ? { ...t, autoDarkMode: !t.autoDarkMode } : t
-              )
-            )
+            dispatch({ type: 'UPDATE_TAB', id: activeTabId, patch: { autoDarkMode: !activeTab.autoDarkMode } })
           }
           onOpenClearDialog={() => setShowClearDialog(true)}
-          onOpenSettings={() => navigate('chrome://settings')}
-          onOpenAbout={() => navigate('chrome://about')}
+          onOpenSettings={() => navigate('xyro://settings')}
+          onOpenAbout={() => navigate('xyro://about')}
+          onOpenDownloadPortal={() => setShowDownloadPortal(true)}
           onClose={() => setShowMenu(false)}
         />
       )}
@@ -1097,7 +661,7 @@ export default function App() {
           blockedCount={activeTab.blockedCount}
           shieldsEnabled={settings.shieldsEnabled}
           onToggleShields={() =>
-            updateSettings({ ...settings, shieldsEnabled: !settings.shieldsEnabled })
+            dispatch({ type: 'UPDATE_SETTINGS', patch: { shieldsEnabled: !settings.shieldsEnabled } })
           }
           onClose={() => setShowShields(false)}
         />
@@ -1128,9 +692,9 @@ export default function App() {
         <TabSwitcher
           tabs={tabs}
           activeTabId={activeTabId}
-          onSelectTab={setActiveTabId}
+          onSelectTab={selectTab}
           onCloseTab={closeTab}
-          onNewTab={(incognito) => createNewTab('chrome://newtab', incognito)}
+          onNewTab={(incognito) => createNewTab('xyro://newtab', incognito)}
           onCloseSwitcher={() => setShowTabSwitcher(false)}
         />
       )}

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80" fill="none">
+  <defs>
+    <linearGradient id="xyroWordGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ec4899" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
+  <path d="M30 20 L58 60 M58 20 L30 60" stroke="url(#xyroWordGrad)" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="44" cy="40" r="5" fill="url(#xyroWordGrad)"/>
+  <text x="76" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="700" font-size="34" fill="#ffffff" letter-spacing="-0.5">Xyro<tspan fill="url(#xyroWordGrad)">Browse</tspan></text>
+</svg>

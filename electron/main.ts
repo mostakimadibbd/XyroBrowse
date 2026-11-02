@@ -1,16 +1,20 @@
-import { app, BrowserWindow, ipcMain, session, WebContents, webContents } from 'electron';
+import { app, BrowserWindow, ipcMain, session, WebContents, Session } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { DesktopStore } from './store.js';
 import { DesktopAdblocker } from './adblock.js';
 import { DesktopDownloadManager } from './downloads.js';
-import { DesktopPermissionManager } from './permissions.js';
+import { DesktopPermissionManager, PermissionType } from './permissions.js';
 import { DesktopSearchSuggest } from './suggest.js';
 import { setupAppMenu, showContextMenu } from './menus.js';
 import { DesktopTabManager } from './tabs.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const getDirname = () => {
+  if (typeof __dirname !== 'undefined') return __dirname;
+  return path.dirname(fileURLToPath(import.meta.url));
+};
+
+const currentDir = getDirname();
 
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -26,10 +30,54 @@ const permissionManager = new DesktopPermissionManager(store);
 const searchSuggest = new DesktopSearchSuggest();
 const tabManager = new DesktopTabManager();
 
+// Load stored adblock allowlist
+adblocker.loadAllowlist(store.get('adblockAllowlist') || []);
+
 // Genuine Chrome User Agent without Electron tokens
 const genuineChromeUa = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
 
+// Pending permission requests map
+const pendingPermissions = new Map<string, (allowed: boolean) => void>();
+
+function configureSession(sess: Session) {
+  sess.setUserAgent(genuineChromeUa);
+  adblocker.attachToSession(sess);
+  downloadManager.attachToSession(sess, (evtName, payload) => {
+    mainWindow?.webContents.send(evtName, payload);
+  });
+  permissionManager.attachToSession(sess, async (req) => {
+    return new Promise<boolean>((resolve) => {
+      const id = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      pendingPermissions.set(id, resolve);
+      mainWindow?.webContents.send('engine-event', 'permissionRequest', {
+        id,
+        origin: req.origin,
+        permission: req.permission,
+      });
+      // Timeout after 30s
+      setTimeout(() => {
+        if (pendingPermissions.has(id)) {
+          pendingPermissions.delete(id);
+          resolve(false);
+        }
+      }, 30000);
+    });
+  });
+}
+
+// Watch for any created sessions (default, persist:xyro, incognito-*)
+app.on('session-created', (sess) => {
+  configureSession(sess);
+});
+
 async function createWindow() {
+  // Pre-configure default and persist sessions
+  configureSession(session.defaultSession);
+  configureSession(session.fromPartition('persist:xyro'));
+
+  // Preload file path: check dist-electron first, then local
+  const preloadPath = path.join(currentDir, 'preload.cjs');
+
   mainWindow = new BrowserWindow({
     width: 1366,
     height: 850,
@@ -38,7 +86,7 @@ async function createWindow() {
     backgroundColor: '#202124',
     title: 'XyroBrowse',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -48,56 +96,80 @@ async function createWindow() {
 
   setupAppMenu(mainWindow);
 
-  // Set genuine Chrome User Agent on default and persist sessions
-  session.defaultSession.setUserAgent(genuineChromeUa);
-  const persistSession = session.fromPartition('persist:xyro');
-  persistSession.setUserAgent(genuineChromeUa);
-
-  // Initialize and attach Adblocker to sessions
-  await adblocker.initialize();
-  adblocker.attachToSession(session.defaultSession, (tabId, count) => {
+  // Wire adblock blocked notifications
+  adblocker.setOnBlocked((tabId, count) => {
     mainWindow?.webContents.send('engine-event', 'blocked', { tabId, count });
-  });
-  adblocker.attachToSession(persistSession, (tabId, count) => {
-    mainWindow?.webContents.send('engine-event', 'blocked', { tabId, count });
-  });
-
-  // Handle downloads
-  persistSession.on('will-download', (_evt, item, contents) => {
-    downloadManager.handleWillDownload(item, contents, (evtName, payload) => {
-      mainWindow?.webContents.send(evtName, payload);
-    });
-  });
-
-  // Permission requests
-  persistSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    const origin = webContents.getURL() ? new URL(webContents.getURL()).origin : '';
-    permissionManager.handlePermissionRequest(origin, permission as any, callback, async (req) => {
-      // In desktop mode, prompt user via IPC or allow
-      return false;
-    });
   });
 
   // Secure webview creation
-  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    delete webPreferences.preload;
-    delete (webPreferences as any).preloadURL;
+  mainWindow.webContents.on('will-attach-webview', (_event, webPreferences, params) => {
+    // 1. Validate partition whitelist
     const partition = params.partition || '';
     if (partition !== 'persist:xyro' && !partition.startsWith('incognito-')) {
       params.partition = 'persist:xyro';
     }
-    if (params.partition.startsWith('incognito-')) {
-      adblocker.attachToSession(session.fromPartition(params.partition));
-    }
+
+    // 2. Enforce secure webPreferences
     webPreferences.contextIsolation = true;
     webPreferences.nodeIntegration = false;
     webPreferences.sandbox = true;
     webPreferences.javascript = true;
   });
 
-  // Window open handler: forward to new tab and deny native windows
+  // Handle guest webContents events when webview attaches
+  mainWindow.webContents.on('did-attach-webview', (_event, guestWebContents) => {
+    // 1. Guest context menu
+    guestWebContents.on('context-menu', (_evt, params) => {
+      showContextMenu(guestWebContents, params, (url) => {
+        mainWindow?.webContents.send('engine-event', 'newTab', { url });
+      });
+    });
+
+    // 2. Guest window.open -> open in new tab
+    guestWebContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('file:') || url.startsWith('javascript:')) {
+        return { action: 'deny' };
+      }
+      mainWindow?.webContents.send('engine-event', 'newTab', { url });
+      return { action: 'deny' };
+    });
+
+    // 3. Guest keyboard shortcut forwarding
+    guestWebContents.on('before-input-event', (_evt, input) => {
+      if (input.type === 'keyDown') {
+        const isMac = process.platform === 'darwin';
+        const ctrlOrCmd = isMac ? input.meta : input.control;
+        const k = input.key.toLowerCase();
+
+        const isShortcut =
+          input.key === 'F5' ||
+          input.key === 'F11' ||
+          input.key === 'Escape' ||
+          (input.alt && (input.key === 'ArrowLeft' || input.key === 'ArrowRight')) ||
+          (ctrlOrCmd && ['t', 'w', 'l', 'r', 'f', 'p', 'd', 'h', 'j', '+', '-', '=', '0'].includes(k)) ||
+          (ctrlOrCmd && input.shift && ['t', 'n', 'b'].includes(k));
+
+        if (isShortcut) {
+          mainWindow?.webContents.send('engine-event', 'shortcut', {
+            key: input.key,
+            ctrlKey: input.control,
+            metaKey: input.meta,
+            shiftKey: input.shift,
+            altKey: input.alt,
+          });
+        }
+      }
+    });
+
+    // 4. Reject insecure certificates
+    guestWebContents.on('certificate-error', (event, _url, _error, _cert, callback) => {
+      event.preventDefault();
+      callback(false);
+    });
+  });
+
+  // Window open handler for main window
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Block dangerous protocols
     if (url.startsWith('file:') || url.startsWith('javascript:')) {
       return { action: 'deny' };
     }
@@ -105,17 +177,25 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // Load the React browser chrome. Website documents are rendered by native
-  // Chromium webviews, never by the hosted Lite Mode proxy.
+  // Load Vite app in dev or index.html in prod
   const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3000';
   if (app.isPackaged) {
-    await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(currentDir, '../dist/index.html'));
   } else {
-    await mainWindow.loadURL(devUrl);
+    mainWindow.loadURL(devUrl);
   }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // Initialize adblocker rules asynchronously in the background so window opens immediately
+  adblocker.initialize().then(() => {
+    // Re-attach to active sessions once filter lists are parsed
+    configureSession(session.defaultSession);
+    configureSession(session.fromPartition('persist:xyro'));
+  }).catch((err) => {
+    console.error('Failed to initialize adblocker in background:', err);
   });
 }
 
@@ -125,7 +205,6 @@ app.on('second-instance', (_event, commandLine) => {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
 
-    // Check if URL passed in args
     const url = commandLine.find((arg) => arg.startsWith('http://') || arg.startsWith('https://'));
     if (url) {
       mainWindow.webContents.send('engine-event', 'newTab', { url });
@@ -142,94 +221,32 @@ app.on('open-url', (event, url) => {
 });
 
 // IPC Handlers
-ipcMain.on('xyro-tab-create', (_evt, { tabId, url, isIncognito }) => {
-  tabManager.registerTab(tabId, isIncognito);
-});
-ipcMain.on('xyro-tab-attach', (_evt, { tabId, webContentsId }: { tabId: string; webContentsId: number }) => {
-  const guest = webContents.fromId(webContentsId);
-  if (!guest || guest.isDestroyed()) return;
-  tabManager.attachWebContents(tabId, guest, (eventName, payload) => {
-    mainWindow?.webContents.send('engine-event', eventName, payload);
-  });
+ipcMain.on('xyro-tab-attach', (_evt, { tabId, webContentsId }) => {
+  adblocker.setWebContentsTab(webContentsId, tabId);
 });
 
 ipcMain.on('xyro-tab-destroy', (_evt, { tabId }) => {
+  adblocker.removeTab(tabId);
   tabManager.removeTab(tabId);
 });
-
-ipcMain.on('xyro-tab-set-active', (_evt, { tabId }) => {
-  tabManager.touchTab(tabId);
-});
-// Native tab lifecycle and browser navigation. The renderer's webview elements
-// own the actual Chromium WebContents; the manager tracks activity and history.
-ipcMain.on('xyro-tab-navigate', (_evt, { tabId, url }: { tabId: string; url: string }) => {
-  const tab = tabManager.getTab(tabId);
-  tab?.contents?.loadURL(url);
-});
-ipcMain.on('xyro-tab-back', (_evt, { tabId }) => {
-  const tab = tabManager.getTab(tabId);
-  if (tab?.contents?.navigationHistory.canGoBack()) tab.contents.navigationHistory.goBack();
-});
-ipcMain.on('xyro-tab-forward', (_evt, { tabId }) => {
-  const tab = tabManager.getTab(tabId);
-  if (tab?.contents?.navigationHistory.canGoForward()) tab.contents.navigationHistory.goForward();
-});
-ipcMain.on('xyro-tab-reload', (_evt, { tabId, hard }: { tabId: string; hard?: boolean }) => {
-  const tab = tabManager.getTab(tabId);
-  if (hard) tab?.contents?.reloadIgnoringCache();
-  else tab?.contents?.reload();
-});
-ipcMain.on('xyro-tab-stop', (_evt, { tabId }) => tabManager.getTab(tabId)?.contents?.stop());
-ipcMain.on('xyro-tab-zoom', (_evt, { tabId, factor }: { tabId: string; factor: number }) => {
-  const tab = tabManager.getTab(tabId);
-  if (tab?.contents && Number.isFinite(factor)) tab.contents.setZoomFactor(Math.max(0.25, Math.min(5, factor)));
-});
-ipcMain.on('xyro-tab-find', (_evt, { tabId, text, forward }: { tabId: string; text: string; forward?: boolean }) => {
-  const contents = tabManager.getTab(tabId)?.contents;
-  if (contents && text) contents.findInPage(text, { forward: forward !== false });
-});
-ipcMain.on('xyro-tab-stop-find', (_evt, { tabId }) => tabManager.getTab(tabId)?.contents?.stopFindInPage('clearSelection'));
-ipcMain.on('xyro-tab-print', (_evt, { tabId }) => tabManager.getTab(tabId)?.contents?.print());
-ipcMain.on('xyro-tab-devtools', (_evt, { tabId }) => tabManager.getTab(tabId)?.contents?.openDevTools({ mode: 'detach' }));
-
 
 ipcMain.handle('xyro-search-suggest', async (_evt, { query, engine }) => {
   return searchSuggest.getSuggestions(query, engine);
 });
 
-ipcMain.on('xyro-set-shields-enabled', (_evt, enabled: unknown) => {
-  if (typeof enabled !== 'boolean') {
-    console.warn('Ignored invalid privacy-shields setting.');
-    return;
+ipcMain.on('xyro-permission-response', (_evt, { requestId, allowed }) => {
+  const resolve = pendingPermissions.get(requestId);
+  if (resolve) {
+    pendingPermissions.delete(requestId);
+    resolve(Boolean(allowed));
   }
-  adblocker.setEnabled(enabled);
 });
 
-ipcMain.handle(
-  'xyro-clear-browsing-data',
-  async (_evt, options: { clearCookies: boolean; clearCache: boolean }) => {
-    const sessions = [session.defaultSession, session.fromPartition('persist:xyro')];
-    await Promise.all(
-      sessions.map(async (browserSession) => {
-        if (options.clearCookies) {
-          await browserSession.clearStorageData({ storages: ['cookies'] });
-        }
-        if (options.clearCache) {
-          await browserSession.clearCache();
-        }
-      })
-    );
-  }
-);
-
-ipcMain.handle('xyro-clear-incognito-session', async (_evt, { partition }: { partition: string }) => {
-  if (!/^incognito-tab-[a-z0-9]+$/i.test(partition)) {
-    throw new Error('Invalid incognito partition.');
-  }
-  const incognitoSession = session.fromPartition(partition);
-  await incognitoSession.clearStorageData();
-  await incognitoSession.clearCache();
-});
+ipcMain.on('xyro-download-pause', (_evt, { id }) => downloadManager.pause(id));
+ipcMain.on('xyro-download-resume', (_evt, { id }) => downloadManager.resume(id));
+ipcMain.on('xyro-download-cancel', (_evt, { id }) => downloadManager.cancel(id));
+ipcMain.on('xyro-download-open', (_evt, { id }) => downloadManager.openFile(id));
+ipcMain.on('xyro-download-show', (_evt, { id }) => downloadManager.showInFolder(id));
 
 app.whenReady().then(createWindow);
 
