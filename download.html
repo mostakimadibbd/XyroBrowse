@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="description" content="Download XyroBrowse for macOS, Windows, Linux, and Android.">
+  <title>Download XyroBrowse</title>
+  <style>
+    :root{color-scheme:dark;--bg:#080b14;--panel:#111827;--muted:#9ca3b8;--line:#263147;--accent:#8b7cff;--text:#f7f8ff}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 50% 0%,#25204c 0,transparent 48%),var(--bg);color:var(--text);font:16px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    a{color:inherit}.wrap{max-width:980px;margin:auto;padding:28px 20px 64px}.nav{display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{font-weight:750;letter-spacing:-.04em;font-size:20px}.brand span{color:var(--accent)}.github{color:var(--muted);font-size:14px;text-decoration:none}
+    .hero{text-align:center;padding:72px 0 40px}.eyebrow{display:inline-flex;border:1px solid #49416f;background:#17142a;border-radius:999px;padding:6px 12px;color:#c9c2ff;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+    h1{font-size:clamp(38px,7vw,64px);line-height:1.04;letter-spacing:-.055em;margin:20px 0 16px}.sub{max-width:610px;margin:0 auto;color:var(--muted);font-size:17px}
+    .notice{max-width:720px;margin:24px auto 0;padding:12px 16px;border:1px solid var(--line);background:#0f1422;border-radius:12px;color:#bdc6d8;font-size:13px}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:28px}.card{display:flex;flex-direction:column;min-height:218px;padding:22px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(145deg,#151c2c,#0e1320);transition:border-color .2s,transform .2s}.card.recommended{border-color:#8174f2;box-shadow:0 0 0 1px #8174f222}.card:hover{transform:translateY(-2px);border-color:#655bd1}.top{display:flex;align-items:center;gap:14px}.icon{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:#22243b;font-size:24px}.card h2{font-size:19px;margin:0}.meta{color:var(--muted);font-size:13px}.card p{color:#b5bfd1;font-size:14px;margin:16px 0 22px}.btn{display:flex;align-items:center;justify-content:center;margin-top:auto;width:100%;padding:12px 16px;background:#8b7cff;color:#0c0b19;text-decoration:none;font-weight:750;border-radius:10px;border:0;cursor:pointer}.btn.secondary{background:#222a3c;color:#f4f5ff}.btn[aria-disabled=true]{opacity:.45;pointer-events:none}.status{text-align:center;color:var(--muted);font-size:13px;margin:20px 0}.foot{border-top:1px solid var(--line);margin-top:44px;padding-top:22px;display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:13px}.foot a{color:#c7c1ff}
+    @media(max-width:620px){.hero{padding:52px 0 26px}.grid{grid-template-columns:1fr}.card{min-height:190px}.wrap{padding-inline:16px}.github{font-size:12px}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <nav class="nav"><a class="brand" href="/" style="text-decoration:none">Xyro<span>Browse</span></a><a class="github" href="https://github.com/mostakimadibbd/XyroBrowse">View source on GitHub ↗</a></nav>
+    <section class="hero">
+      <span class="eyebrow">Your web, your way</span>
+      <h1>A better way to<br>browse the web.</h1>
+      <p class="sub">Download XyroBrowse for your device. Choose your platform below or use the recommended download for this device.</p>
+      <div class="notice">Desktop versions use Chromium through Electron for full browser rendering. Android uses the XyroBrowse Lite web experience and needs an internet connection. This is an early release.</div>
+    </section>
+    <section class="grid" aria-label="Platform downloads">
+      <article class="card" data-platform="mac">
+        <div class="top"><div class="icon" aria-hidden="true">⌘</div><div><h2>macOS</h2><div class="meta">Apple Silicon & Intel · DMG</div></div></div>
+        <p>Install XyroBrowse on a Mac. Choose the disk image for your processor; ZIP is also available.</p>
+        <a class="btn" id="mac-link" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest" rel="noopener">Find macOS download</a>
+      </article>
+      <article class="card" data-platform="windows">
+        <div class="top"><div class="icon" aria-hidden="true">⊞</div><div><h2>Windows</h2><div class="meta">Windows 10/11 · x64 installer</div></div></div>
+        <p>Download the Windows setup program and follow the installer steps.</p>
+        <a class="btn" id="windows-link" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest" rel="noopener">Download for Windows</a>
+      </article>
+      <article class="card" data-platform="android">
+        <div class="top"><div class="icon" aria-hidden="true">◈</div><div><h2>Android</h2><div class="meta">APK · Android phones & tablets</div></div></div>
+        <p>Download and open the APK. Android may ask you to allow installs from your browser or file manager.</p>
+        <a class="btn" id="android-link" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest" rel="noopener">Download APK</a>
+      </article>
+      <article class="card" data-platform="linux">
+        <div class="top"><div class="icon" aria-hidden="true">◉</div><div><h2>Linux</h2><div class="meta">AppImage & DEB · x64</div></div></div>
+        <p>Choose the portable AppImage or the Debian package for your distribution.</p>
+        <a class="btn" id="linux-link" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest" rel="noopener">Find Linux download</a>
+      </article>
+    </section>
+    <p class="status" id="status" role="status">Checking the latest release…</p>
+    <footer class="foot"><span>© XyroBrowse · Early access</span><span><a href="https://github.com/mostakimadibbd/XyroBrowse/releases">All releases</a> · <a href="https://github.com/mostakimadibbd/XyroBrowse/issues">Report a bug</a></span></footer>
+  </main>
+  <script>
+    (function(){
+      var repo='mostakimadibbd/XyroBrowse';
+      var fallback='https://github.com/'+repo+'/releases/latest';
+      var ua=navigator.userAgent||'';
+      var platform=/android/i.test(ua)?'android':/(iphone|ipad|ipod)/i.test(ua)?'android':/macintosh|mac os x/i.test(ua)?'mac':/windows/i.test(ua)?'windows':/linux/i.test(ua)?'linux':'';
+      var card=platform&&document.querySelector('[data-platform="'+platform+'"]');
+      if(card)card.classList.add('recommended');
+      var labels={mac:'Download for this Mac',windows:'Download for this PC',android:'Download for this Android device',linux:'Download for this Linux device'};
+      if(card){var btn=card.querySelector('.btn');btn.textContent=labels[platform]||btn.textContent;}
+      function choose(assets,regex,extensions){return assets.find(function(a){return regex.test(a.name)})||assets.find(function(a){return extensions.test(a.name)})}
+      fetch('https://api.github.com/repos/'+repo+'/releases/latest',{headers:{Accept:'application/vnd.github+json'}})
+      .then(function(r){if(!r.ok)throw new Error('No published release yet');return r.json()})
+      .then(function(release){
+        var assets=release.assets||[];
+        var picks={
+          mac:choose(assets,/(arm64|aarch64).*\.dmg$|\.dmg$/i,/\.dmg$/i),
+          windows:choose(assets,/setup.*\.exe$|\.exe$/i,/\.exe$/i),
+          android:choose(assets,/xyrobrowse.*\.apk$|app-debug\.apk$/i,/\.apk$/i),
+          linux:choose(assets,/\.appimage$/i,/\.appimage$/i)||choose(assets,/\.deb$/i,/\.deb$/i)
+        };
+        Object.keys(picks).forEach(function(key){
+          var a=picks[key],link=document.getElementById(key+'-link');
+          if(a&&link){link.href=a.browser_download_url;link.download=a.name;link.textContent=key==='linux'&&/\.deb$/i.test(a.name)?'Download DEB package':key==='mac'?'Download DMG':key==='windows'?'Download Windows installer':key==='android'?'Download APK':'Download AppImage';link.setAttribute('data-asset',a.name)}
+        });
+        document.getElementById('status').textContent='Latest release: '+(release.name||release.tag_name)+' · '+assets.length+' downloadable file(s).';
+      })
+      .catch(function(){
+        document.getElementById('status').textContent='No downloadable release is published yet. Check GitHub Releases for build status and the next release.';
+        document.querySelectorAll('.btn').forEach(function(b){b.href=fallback;b.textContent='View GitHub releases'});
+      });
+    })();
+  </script>
+</body>
+</html>
