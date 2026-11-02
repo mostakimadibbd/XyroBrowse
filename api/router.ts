@@ -154,7 +154,14 @@ app.all('/p/:origin/**', async (c) => {
 
   let origin = '';
   try {
-    origin = decodeURIComponent(encOrigin);
+    // Proxy origin segments are base64url encoded to keep Vercel route matching
+    // safe. Continue accepting old percent-encoded origins for existing tabs.
+    const decoded = Buffer.from(encOrigin, 'base64url').toString('utf8');
+    origin = /^https?:\/\//i.test(decoded) ? decoded : decodeURIComponent(encOrigin);
+    const parsedOrigin = new URL(origin);
+    if (!['http:', 'https:'].includes(parsedOrigin.protocol) || parsedOrigin.origin !== origin) {
+      return c.text('Invalid proxy origin', 400);
+    }
   } catch {
     return c.text('Invalid encoded origin', 400);
   }
@@ -420,7 +427,9 @@ const handleRequest = (request: Request): Promise<Response> => {
       return Promise.resolve(Response.json({ error: 'Invalid proxy origin', code: 'ERR_INVALID_PROXY_ORIGIN' }, { status: 400 }));
     }
 
-    requestUrl.pathname = `/api/p/${encodeURIComponent(origin)}${proxyPath.startsWith('/') ? proxyPath : `/${proxyPath}`}`;
+    // Keep the base64url origin as-is; percent-encoding it here makes the
+    // downstream /api/p route disagree with the new URL format.
+    requestUrl.pathname = `/api/p/${encodedOrigin}${proxyPath.startsWith('/') ? proxyPath : `/${proxyPath}`}`;
     requestUrl.searchParams.delete('__origin');
     requestUrl.searchParams.delete('__proxyPath');
   } else {
