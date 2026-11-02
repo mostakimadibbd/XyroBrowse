@@ -30,7 +30,7 @@ npm run build:desktop
 
 Visit [`/download.html`](https://xyrobrowsebd.vercel.app/download.html) for the platform download page. macOS DMG/ZIP, Windows installer, and Linux AppImage/DEB packages are built and attached to GitHub Releases when a `v*` tag is published. Desktop builds use bundled Chromium through Electron and do not rely on the Vercel proxy for normal page navigation.
 
-Android currently uses the installable web/PWA version only; it is **not yet a native Chromium Android browser**. Its website rendering remains subject to Lite Mode's proxy limitations.
+Android is packaged as a Capacitor WebView APK that loads the hosted Lite Mode app. It is installable but requires internet access and the hosted API; it is **not a standalone native Chromium browser**. Its website rendering remains subject to Lite Mode's proxy limitations.
 
 ### Deploying Lite Mode to Vercel
 
