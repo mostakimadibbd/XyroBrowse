@@ -143,10 +143,15 @@ app.post('/clear-data', async (c) => {
 app.all('/p/:origin/**', async (c) => {
   const encOrigin = c.req.param('origin');
   const path = c.req.param('*') || '';
-  const queryStr = c.req.query() ? '?' + new URLSearchParams(c.req.query()).toString() : '';
-  
-  const privateSessionId = c.req.query('__xyro_sid');
-  const shieldsEnabled = c.req.query('__xyro_shields') !== 'off';
+
+  // Keep browser-internal proxy flags out of the upstream website query.
+  const incomingUrl = new URL(c.req.url);
+  const privateSessionId = incomingUrl.searchParams.get('__xyro_sid') || undefined;
+  const shieldsEnabled = incomingUrl.searchParams.get('__xyro_shields') !== 'off';
+  incomingUrl.searchParams.delete('__xyro_sid');
+  incomingUrl.searchParams.delete('__xyro_shields');
+  const query = incomingUrl.searchParams.toString();
+  const queryStr = query ? `?${query}` : '';
   
   if (privateSessionId && !/^[a-f0-9-]{36}$/i.test(privateSessionId)) {
     return c.text('Invalid private session', 400);
@@ -185,7 +190,18 @@ app.all('/p/:origin/**', async (c) => {
     return c.body(null, 204);
   }
 
+  // The Express development server sets this cookie in middleware. Recreate
+  // the same session behavior in Vercel's serverless handler.
+  const cookieHeader = c.req.header('cookie') || '';
+  const cookieMatch = cookieHeader.match(/(?:^|;\\s*)xyro_sid=([^;]+)/);
+  const sessionId = cookieMatch?.[1] || crypto.randomUUID();
+  if (!cookieMatch) {
+    const secure = new URL(c.req.url).protocol === 'https:' ? '; Secure' : '';
+    c.header('Set-Cookie', `xyro_sid=${sessionId}; Path=/; HttpOnly; SameSite=Lax${secure}`);
+  }
+
   const sid = privateSessionId ? `private:${privateSessionId}` : sessionId;
+  const proxySessionId = privateSessionId || sessionId;
   const jar = getCookieJar(sid);
 
   const forwardedHeaders: Record<string, string> = {};
@@ -255,7 +271,7 @@ app.all('/p/:origin/**', async (c) => {
         rawHtml,
         fetched.finalUrl,
         undefined,
-        privateSessionId || undefined,
+        proxySessionId,
         shieldsEnabled
       );
 
@@ -284,7 +300,7 @@ app.all('/p/:origin/**', async (c) => {
       const rewrittenCss = rewriteCss(
         rawCss,
         fetched.finalUrl,
-        privateSessionId || undefined,
+        proxySessionId,
         shieldsEnabled
       );
       c.res.headers.set('Content-Type', 'text/css; charset=utf-8');
