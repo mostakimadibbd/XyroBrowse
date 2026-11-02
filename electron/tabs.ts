@@ -47,6 +47,8 @@ export class DesktopTabManager {
     if (!tab) return;
     tab.contents = contents;
     tab.lastActive = Date.now();
+    // The webview's native Chromium contents is now available to IPC controls.
+    // Event forwarding below stays in place for desktop tab state synchronization.
 
     // 1. Navigation events
     const updateNavState = () => {
