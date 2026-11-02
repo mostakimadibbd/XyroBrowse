@@ -154,7 +154,14 @@ app.all('/p/:origin/**', async (c) => {
 
   let origin = '';
   try {
-    origin = decodeURIComponent(encOrigin);
+    // Current proxy URLs use base64url because Vercel can decode percent-encoded
+    // slashes in route parameters before matching /api/p/:origin/:proxyPath*.
+    const decoded = Buffer.from(encOrigin, 'base64url').toString('utf8');
+    origin = /^https?:\/\//i.test(decoded) ? decoded : decodeURIComponent(encOrigin);
+    const parsedOrigin = new URL(origin);
+    if (!['http:', 'https:'].includes(parsedOrigin.protocol) || parsedOrigin.origin !== origin) {
+      return c.text('Invalid proxy origin', 400);
+    }
   } catch {
     return c.text('Invalid encoded origin', 400);
   }
@@ -420,7 +427,9 @@ const handleRequest = (request: Request): Promise<Response> => {
       return Promise.resolve(Response.json({ error: 'Invalid proxy origin', code: 'ERR_INVALID_PROXY_ORIGIN' }, { status: 400 }));
     }
 
-    requestUrl.pathname = `/api/p/${encodeURIComponent(origin)}${proxyPath.startsWith('/') ? proxyPath : `/${proxyPath}`}`;
+    // The origin is already a base64url route segment; do not percent-encode
+    // it again or Vercel may route the request to the SPA fallback.
+    requestUrl.pathname = `/api/p/${origin}${proxyPath.startsWith('/') ? proxyPath : `/${proxyPath}`}`;
     requestUrl.searchParams.delete('__origin');
     requestUrl.searchParams.delete('__proxyPath');
   } else {
