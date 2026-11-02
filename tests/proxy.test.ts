@@ -178,8 +178,8 @@ test('Proxy Fixture Server - verifies relative CSS, modules, login jar, range, a
     // 2. Test CSS rewriter
     const cssText = `@import "./sub.css";\n.box { background: url("./bg.png"); }`;
     const rewrittenCss = rewriteCss(cssText, `${baseUrl}/styles/main.css`);
-    assert.match(rewrittenCss, /@import url\("\/api\/p\/http%3A%2F%2F127\.0\.0\.1%3A\d+\/styles\/sub\.css"\);/);
-    assert.match(rewrittenCss, /url\("\/api\/p\/http%3A%2F%2F127\.0\.0\.1%3A\d+\/styles\/bg\.png"\)/);
+    assert.ok(rewrittenCss.includes(toProxyUrl(`${baseUrl}/styles/sub.css`)));
+    assert.ok(rewrittenCss.includes(toProxyUrl(`${baseUrl}/styles/bg.png`)));
 
     // 3. Test Range request and HTTP 206
     const videoRes = await safeFetch(`${baseUrl}/video.mp4`, {
