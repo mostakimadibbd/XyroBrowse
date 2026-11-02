@@ -133,7 +133,7 @@ jobs:
   publish:
     name: Publish GitHub release
     needs: [package, android]
-    if: ${{ always() && needs.package.result == 'success' }}
+    if: ${{ always() && needs.package.result == 'success' && needs.android.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download all installers
