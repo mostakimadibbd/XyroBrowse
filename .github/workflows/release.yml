@@ -114,7 +114,7 @@ jobs:
         run: npm run build
 
       - name: Generate Android project
-        run: npx cap add android
+        run: npx cap add android --verbose
 
       - name: Sync Android project
         run: npx cap sync android
