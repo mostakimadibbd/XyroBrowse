@@ -64,7 +64,7 @@ app.post('/api/clear-data', (req: Request, res: Response) => {
       res.status(400).json({ error: 'Invalid private session' });
       return;
     }
-    clearCookieJar(`private:${privateSessionId}`);
+    clearCookieJar(privateSessionId);
   }
   res.status(204).end();
 });
@@ -140,7 +140,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
   }
 
   const sid = privateSessionId
-    ? `private:${privateSessionId}`
+    ? privateSessionId
     : (req as any).xyro_sid;
   const jar = getCookieJar(sid);
 
@@ -352,7 +352,7 @@ app.get('/api/reader', async (req: Request, res: Response) => {
 
   try {
     const cookieJar = privateSessionId
-      ? getCookieJar(`private:${privateSessionId}`)
+      ? getCookieJar(privateSessionId)
       : getCookieJar((req as any).xyro_sid);
     const article = await extractArticle(targetUrl, cookieJar, shieldsEnabled);
     res.json(article);
@@ -407,7 +407,7 @@ app.get('/api/download', async (req: Request, res: Response) => {
 
   try {
     const sid = privateSessionId
-      ? `private:${privateSessionId}`
+      ? privateSessionId
       : (req as any).xyro_sid;
     const jar = getCookieJar(sid);
     const fetched = await safeFetch(targetUrl, { cookieJar: jar, shieldsEnabled });
