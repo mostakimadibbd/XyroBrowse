@@ -16,7 +16,8 @@
     "test": "tsx --test tests/*.test.ts",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --packages=external --external:electron --outfile=dist-electron/main.js && esbuild electron/preload.ts --bundle --platform=node --format=cjs --packages=external --external:electron --outfile=dist-electron/preload.cjs"
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --packages=external --external:electron --outfile=dist-electron/main.js && esbuild electron/preload.ts --bundle --platform=node --format=cjs --packages=external --external:electron --outfile=dist-electron/preload.cjs",
+    "build:android": "npm run build && npx cap sync android"
   },
   "dependencies": {
     "@ghostery/adblocker": "^2.20.3",
@@ -31,7 +32,9 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "tough-cookie": "^6.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/android": "^7.4.3"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
@@ -45,7 +48,8 @@
     "esbuild": "^0.28.0",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
-    "wait-on": "^9.5.1"
+    "wait-on": "^9.5.1",
+    "@capacitor/cli": "^7.4.3"
   },
   "build": {
     "appId": "com.xyrobrowse.browser",
