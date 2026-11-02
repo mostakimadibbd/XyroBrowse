@@ -131,6 +131,10 @@ export class DesktopTabManager {
     });
   }
 
+  public getTab(tabId: string): TabSessionInfo | undefined {
+    return this.tabs.get(tabId);
+  }
+
   public touchTab(tabId: string): void {
     const tab = this.tabs.get(tabId);
     if (tab) {
