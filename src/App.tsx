@@ -860,6 +860,22 @@ export default function App() {
 
   return (
     <div className="chrome-browser-shell">
+      {!window.matchMedia('(display-mode: standalone)').matches && window.xyro?.platform !== 'electron' && (
+        <a
+          href="/download.html"
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 12,
+            zIndex: 1000,
+            color: 'var(--chrome-text-secondary)',
+            fontSize: 12,
+            textDecoration: 'none',
+          }}
+        >
+          Download XyroBrowse
+        </a>
+      )}
       {/* Layout Container */}
       <div style={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
         {/* Vertical Tabs Sidebar */}
