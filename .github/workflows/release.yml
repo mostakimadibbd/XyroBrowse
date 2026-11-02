@@ -1,21 +1,23 @@
 name: Build and publish XyroBrowse installers
 
 on:
+  create:
   push:
     tags:
       - "v*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to create (for example v0.1.0)"
+        description: "Release tag to create (for example v0.1.0-beta.1)"
         required: true
-        default: "v0.1.0"
+        default: "v0.1.0-beta.1"
 
 permissions:
   contents: write
 
 jobs:
   package:
+    if: ${{ github.event_name != 'create' || (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/')) }}
     name: Package ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -68,6 +70,7 @@ jobs:
           retention-days: 7
 
   android:
+    if: ${{ github.event_name != 'create' || (github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/')) }}
     name: Package Android APK
     runs-on: ubuntu-latest
     steps:
@@ -114,6 +117,7 @@ jobs:
   publish:
     name: Publish GitHub release
     needs: [package, android]
+    if: ${{ needs.package.result == 'success' && needs.android.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download all installers
@@ -125,7 +129,8 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
+          tag_name: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || 'v0.1.0-beta.1' }}
           generate_release_notes: true
+          prerelease: true
           fail_on_unmatched_files: true
           files: release-assets/*
