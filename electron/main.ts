@@ -78,34 +78,25 @@ async function createWindow() {
     });
   });
 
-  const pendingWebviewTabs: Array<{ tabId: string }> = [];
-  // Bind each attached Chromium webview to the tab manager so IPC controls
-  // operate on the real page rather than a disconnected tab record.
+  const guestTabIds = new Map<number, string>();
   mainWindow.webContents.on('did-attach-webview', (_event, guestContents) => {
     const guest = guestContents as WebContents;
-    const tabId = guest.getType?.() === 'webview' ? guest.id.toString() : '';
-    const owner = mainWindow?.webContents;
-    const elementId = (guest as any).hostWebContents?.id;
-    const partition = guest.session.getPartition?.() || 'persist:xyro';
-    const pending = pendingWebviewTabs.shift();
-    const actualTabId = pending?.tabId || tabId;
-    if (actualTabId) {
-      tabManager.attachWebContents(actualTabId, guest, (eventName, payload) => {
-        owner?.send('engine-event', eventName, payload);
-      });
-    }
+    const actualTabId = guestTabIds.get(guest.id);
+    if (!actualTabId) return;
+    tabManager.attachWebContents(actualTabId, guest, (eventName, payload) => {
+      mainWindow?.webContents.send('engine-event', eventName, payload);
+    });
     guest.on('destroyed', () => {
-      if (actualTabId) tabManager.removeTab(actualTabId);
+      guestTabIds.delete(guest.id);
+      tabManager.removeTab(actualTabId);
     });
   });
 
   // Secure webview creation
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    // 1. Remove dangerous preloads
+    const tabId = params.src ? new URL(params.src).searchParams.get('__xyro_tab_id') : null;
     delete webPreferences.preload;
     delete (webPreferences as any).preloadURL;
-
-    // 2. Validate partition whitelist
     const partition = params.partition || '';
     if (partition !== 'persist:xyro' && !partition.startsWith('incognito-')) {
       params.partition = 'persist:xyro';
@@ -113,12 +104,16 @@ async function createWindow() {
     if (params.partition.startsWith('incognito-')) {
       adblocker.attachToSession(session.fromPartition(params.partition));
     }
-
-    // 3. Enforce secure webPreferences
     webPreferences.contextIsolation = true;
     webPreferences.nodeIntegration = false;
     webPreferences.sandbox = true;
     webPreferences.javascript = true;
+    if (!tabId) {
+      event.preventDefault();
+      return;
+    }
+    params.src = params.src.replace(/([?&])__xyro_tab_id=[^&]*/g, '$1').replace(/[?&]$/, '');
+    guestTabIds.set((event as any).webContentsId, tabId);
   });
 
   // Window open handler: forward to new tab and deny native windows
