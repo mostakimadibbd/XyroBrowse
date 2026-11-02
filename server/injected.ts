@@ -33,7 +33,16 @@ export function getInjectedScript(
       if (proxyUrl.pathname.startsWith('/api/p/')) {
         const match = proxyUrl.pathname.match(/^\\/api\\/p\\/([^/]+)(.*)$/);
         if (match) {
-          const destination = new URL(match[2] || '/', decodeURIComponent(match[1]));
+          const segment = match[1];
+          let decodedOrigin = '';
+          try {
+            const base64 = segment.replace(/-/g, '+').replace(/_/g, '/');
+            decodedOrigin = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+          } catch(e) {}
+          if (!/^https?:\\/\\//i.test(decodedOrigin)) {
+            decodedOrigin = decodeURIComponent(segment);
+          }
+          const destination = new URL(match[2] || '/', decodedOrigin);
           destination.search = proxyUrl.search;
           destination.hash = proxyUrl.hash;
           destination.searchParams.delete('__xyro_sid');
@@ -59,7 +68,7 @@ export function getInjectedScript(
       if (SESSION_ID) u.searchParams.set('__xyro_sid', SESSION_ID);
       if (SHIELDS_ENABLED) u.searchParams.delete('__xyro_shields');
       else u.searchParams.set('__xyro_shields', 'off');
-      const encOrigin = encodeURIComponent(u.origin);
+      const encOrigin = btoa(u.origin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/g, '');
       const sub = u.pathname + u.search + u.hash;
       return '/api/p/' + encOrigin + (sub.startsWith('/') ? sub : '/' + sub);
     } catch(e) {
