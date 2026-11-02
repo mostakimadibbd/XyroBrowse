@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld('xyro', {
   createTab: (tabId: string, url: string, isIncognito = false) => {
     ipcRenderer.send('xyro-tab-create', { tabId, url, isIncognito });
   },
+  attachTab: (tabId: string, webContentsId: number) => {
+    ipcRenderer.send('xyro-tab-attach', { tabId, webContentsId });
+  },
   destroyTab: (tabId: string) => {
     ipcRenderer.send('xyro-tab-destroy', { tabId });
   },
