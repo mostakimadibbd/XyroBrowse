@@ -178,7 +178,6 @@ app.all('/p/:origin/**', async (c) => {
     return c.body(null, 204);
   }
 
-  const sessionId = c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID();
   const sid = privateSessionId ? `private:${privateSessionId}` : sessionId;
   const jar = getCookieJar(sid);
 
@@ -403,9 +402,24 @@ const handleRequest = (request: Request): Promise<Response> => {
   }
 
   if (route === 'proxy') {
-    const origin = requestUrl.searchParams.get('__origin');
+    const encodedOrigin = requestUrl.searchParams.get('__origin');
     const proxyPath = requestUrl.searchParams.get('__proxyPath') || '/';
-    if (!origin) return Promise.resolve(Response.json({ error: 'Missing proxy origin' }, { status: 400 }));
+    if (!encodedOrigin) return Promise.resolve(Response.json({ error: 'Missing proxy origin' }, { status: 400 }));
+
+    // Proxy origins are now base64url encoded so Vercel's path matcher can
+    // safely capture them. Accept legacy percent-encoded origins as well.
+    let origin = encodedOrigin;
+    try {
+      const decoded = Buffer.from(encodedOrigin, 'base64url').toString('utf8');
+      if (decoded.startsWith('http://') || decoded.startsWith('https://')) origin = decoded;
+      else origin = decodeURIComponent(encodedOrigin);
+    } catch {
+      try { origin = decodeURIComponent(encodedOrigin); } catch {}
+    }
+    if (!/^https?:\/\//i.test(origin)) {
+      return Promise.resolve(Response.json({ error: 'Invalid proxy origin', code: 'ERR_INVALID_PROXY_ORIGIN' }, { status: 400 }));
+    }
+
     requestUrl.pathname = `/api/p/${encodeURIComponent(origin)}${proxyPath.startsWith('/') ? proxyPath : `/${proxyPath}`}`;
     requestUrl.searchParams.delete('__origin');
     requestUrl.searchParams.delete('__proxyPath');
@@ -440,8 +454,13 @@ export default async function handler(
     }
 
     const headers = new Headers();
+    // Hop-by-hop headers belong to Node's HTTP transport, not the Web Request.
+    const hopByHop = new Set([
+      'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+      'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length',
+    ]);
     for (const [name, value] of Object.entries(req.headers)) {
-      if (value === undefined) continue;
+      if (value === undefined || hopByHop.has(name.toLowerCase())) continue;
       if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
       else headers.set(name, value);
     }
