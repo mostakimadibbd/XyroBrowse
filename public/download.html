@@ -1,27 +1,70 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#11131a">
 <title>Download XyroBrowse</title>
-<meta name="description" content="Download XyroBrowse for macOS, Windows, Linux, or install the web app on Android.">
+<meta name="description" content="Get XyroBrowse for macOS, Windows, Linux, and Android. Your device is detected automatically.">
 <style>
-:root{color-scheme:dark;--bg:#11131a;--panel:#191c26;--line:#2b3040;--muted:#a5aec2;--text:#f4f6fb;--accent:#8b9cff}
+:root{color-scheme:dark;--bg:#11131a;--panel:#191c26;--line:#2b3040;--muted:#a5aec2;--text:#f4f6fb;--accent:#aebaff}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#29305a 0,transparent 55%),var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-main{width:min(100% - 32px,980px);margin:0 auto;padding:64px 0 40px}.brand{display:flex;align-items:center;gap:12px;font-size:13px;letter-spacing:.2em;font-weight:800;color:#c2c9dc}.logo{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#8c9bff,#4e58a8);color:white;font-size:22px;letter-spacing:0}
-h1{font-size:clamp(38px,7vw,64px);line-height:1.04;letter-spacing:-.045em;margin:34px 0 16px}.lead{max-width:640px;color:var(--muted);font-size:18px}.notice{margin:28px 0;padding:16px 18px;border:1px solid #4b4e73;background:#202238;border-radius:16px;color:#dce0ff}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:26px}.card{background:linear-gradient(160deg,#1d212d,#171a23);border:1px solid var(--line);border-radius:20px;padding:22px;display:flex;flex-direction:column;min-height:230px}.icon{font-size:26px}.card h2{font-size:20px;margin:12px 0 4px}.card p{font-size:14px;color:var(--muted);margin:0 0 22px}.button{display:inline-flex;justify-content:center;align-items:center;text-decoration:none;background:#dce2ff;color:#171a2a;border-radius:12px;padding:11px 14px;font-weight:750;margin-top:auto}.secondary{background:#272c3a;color:#e7eaf4;border:1px solid #3a4052}.foot{margin-top:30px;color:var(--muted);font-size:13px}.foot a{color:#c4ccff}@media(max-width:560px){main{padding-top:32px}.card{min-height:200px}}
+main{width:min(100% - 32px,980px);margin:0 auto;padding:54px 0 40px}.brand{display:flex;align-items:center;gap:12px;font-size:13px;letter-spacing:.2em;font-weight:800;color:#c2c9dc}.logo{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#8c9bff,#4e58a8);color:white;font-size:22px;letter-spacing:0}
+h1{font-size:clamp(38px,7vw,64px);line-height:1.04;letter-spacing:-.045em;margin:34px 0 16px}.lead{max-width:680px;color:var(--muted);font-size:18px}.detected{margin:28px 0 20px;padding:17px 18px;border:1px solid #555d8d;background:#202238;border-radius:16px;display:flex;align-items:center;gap:13px}.detected strong{display:block}.detected small{color:#b9c0d8}.dot{width:10px;height:10px;border-radius:50%;background:#aebaff;box-shadow:0 0 18px #aebaff;flex:none}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin-top:20px}.card{background:linear-gradient(160deg,#1d212d,#171a23);border:1px solid var(--line);border-radius:20px;padding:22px;display:flex;flex-direction:column;min-height:226px;transition:border-color .2s,transform .2s}.card.recommended{border-color:#aebaff;box-shadow:0 0 0 1px #aebaff25}.icon{font-size:26px}.card h2{font-size:20px;margin:12px 0 4px}.card p{font-size:14px;color:var(--muted);margin:0 0 22px}.button{display:inline-flex;justify-content:center;align-items:center;text-decoration:none;background:#dce2ff;color:#171a2a;border-radius:12px;padding:11px 14px;font-weight:750;margin-top:auto;cursor:pointer;border:0;font:inherit;font-weight:750}.button:focus-visible{outline:3px solid #fff;outline-offset:3px}.secondary{background:#272c3a;color:#e7eaf4;border:1px solid #3a4052}.status{font-size:12px;color:#bfc7df;margin-top:9px;min-height:18px}.notice{margin-top:20px;padding:15px 17px;border:1px solid var(--line);border-radius:14px;color:var(--muted);font-size:14px}.foot{margin-top:26px;color:var(--muted);font-size:13px}.foot a{color:#c4ccff}.hidden{display:none!important}@media(max-width:560px){main{padding-top:30px}.card{min-height:205px}.detected{align-items:flex-start}}
 </style>
 </head>
 <body><main>
 <div class="brand"><span class="logo">X</span><span>XYRO BROWSE</span></div>
 <h1>A quieter place to browse.</h1>
-<p class="lead">Choose the version for your device. Desktop downloads run XyroBrowse with its bundled Chromium engine, so ordinary websites do not depend on the hosted Lite Mode proxy.</p>
-<div class="notice"><strong>Desktop is the full browser.</strong> Android installation currently uses the web app (Lite Mode); it is not yet a native Chromium-based Android build.</div>
-<section class="grid" aria-label="Downloads">
-<article class="card"><span class="icon">⌘</span><h2>macOS</h2><p>Apple silicon (M-series) and Intel Macs. Download the DMG or ZIP from the latest release.</p><a class="button" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest">Download for Mac ↗</a></article>
-<article class="card"><span class="icon">⊞</span><h2>Windows</h2><p>64-bit Windows installer with Start Menu and desktop shortcut options.</p><a class="button" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest">Download for Windows ↗</a></article>
-<article class="card"><span class="icon">◈</span><h2>Linux</h2><p>64-bit AppImage and Debian package, when published in a release.</p><a class="button" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest">Download for Linux ↗</a></article>
-<article class="card"><span class="icon">▣</span><h2>Android</h2><p>Install the Android APK. This native app packages the hosted Lite Mode shell, so it requires an internet connection and the hosted API.</p><a class="button" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest/download/app-debug.apk">Download Android APK ↗</a><a class="button secondary" style="margin-top:8px" href="https://xyrobrowsebd.vercel.app/">Open web app ↗</a></article>
+<p class="lead">Download the installable XyroBrowse app for your device. We’ll detect your platform and put the recommended installer first.</p>
+<div class="detected" role="status" aria-live="polite"><span class="dot"></span><div><strong id="detected-title">Detecting your device…</strong><small id="detected-subtitle">Checking available release installers.</small></div></div>
+<section class="grid" aria-label="Download options">
+<article class="card" data-platform="mac"><span class="icon">⌘</span><h2>macOS</h2><p>DMG installer for Apple silicon (M-series) or Intel Macs. ZIP is offered when available.</p><a class="button" id="mac-download" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest">Find Mac installer ↗</a><small class="status" id="mac-status">Checking release assets…</small></article>
+<article class="card" data-platform="win"><span class="icon">⊞</span><h2>Windows</h2><p>64-bit Windows installer (.exe), ready for the standard setup wizard.</p><a class="button" id="win-download" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest">Find Windows installer ↗</a><small class="status" id="win-status">Checking release assets…</small></article>
+<article class="card" data-platform="linux"><span class="icon">◈</span><h2>Linux</h2><p>Choose AppImage for most distributions or DEB for Debian/Ubuntu-based systems.</p><a class="button" id="linux-download" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest">Find Linux installer ↗</a><small class="status" id="linux-status">Checking release assets…</small></article>
+<article class="card" data-platform="android"><span class="icon">▣</span><h2>Android</h2><p>Install the APK on Android. The current Android package uses the hosted Lite Mode and requires internet access.</p><a class="button" id="android-download" href="https://github.com/mostakimadibbd/XyroBrowse/releases/latest">Find Android APK ↗</a><small class="status" id="android-status">Checking release assets…</small></article>
 </section>
-<p class="foot">Releases are published from the <a href="https://github.com/mostakimadibbd/XyroBrowse/releases">official GitHub Releases page</a>. If a release has no installers yet, the automated release build has not completed.</p>
-</main></body></html>
+<div class="notice" id="release-note">Installer links are loaded from the latest published GitHub Release. If a package is not listed yet, its automated build has not completed or the release does not contain that platform’s installer.</div>
+<p class="foot">Desktop builds use Electron with bundled Chromium and do not depend on the Vercel proxy for normal browsing. <a href="https://github.com/mostakimadibbd/XyroBrowse/releases">All releases</a> · <a href="https://github.com/mostakimadibbd/XyroBrowse">Source code</a></p>
+</main>
+<script>
+(function(){
+ const repo='mostakimadibbd/XyroBrowse';
+ const releases='https://github.com/'+repo+'/releases';
+ const ua=navigator.userAgent||'';
+ const platform=/android/i.test(ua)?'android':/(iphone|ipad|ipod)/i.test(ua)?'ios':/macintosh|mac os x/i.test(ua)?'mac':/windows/i.test(ua)?'win':/linux/i.test(ua)?'linux':'unknown';
+ const titles={mac:'macOS detected',win:'Windows detected',linux:'Linux detected',android:'Android detected',ios:'iPhone or iPad detected',unknown:'Choose your device'};
+ const subs={mac:'Recommended: the macOS DMG installer. Apple silicon and Intel builds are selected when identifiable.',win:'Recommended: the Windows 64-bit installer (.exe).',linux:'Recommended: AppImage, with DEB as an alternative.',android:'Recommended: Android APK. You may need to allow installs from this browser.',ios:'There is no native iOS browser installer here. Open the web app or use the Add to Home Screen option.',unknown:'Select your operating system below to get the matching installer.'};
+ document.getElementById('detected-title').textContent=titles[platform];
+ document.getElementById('detected-subtitle').textContent=subs[platform];
+ if(platform==='ios'){document.getElementById('detected-subtitle').textContent+=' iOS does not permit third-party browser engines, so this page does not offer an iOS app.';}
+ const cards=[...document.querySelectorAll('[data-platform]')];
+ const preferred=platform==='ios'?'unknown':platform;
+ const selected=cards.find(c=>c.dataset.platform===preferred);
+ if(selected)selected.classList.add('recommended');
+ const set=(id,asset,empty,href)=>{const a=document.getElementById(id+'-download'),s=document.getElementById(id+'-status');if(asset){a.href=asset.browser_download_url;a.textContent='Download '+asset.name+' ↓';a.setAttribute('download','');s.textContent='Available · '+(asset.size?Math.max(1,Math.round(asset.size/1048576))+' MB':'installer');}else{a.href=href||releases+'/latest';a.textContent=empty;s.textContent='No matching installer in the latest published release yet.';}};
+ const match=(assets,rx)=>assets.find(a=>rx.test(a.name));
+ async function load(){
+  try{
+   const response=await fetch('https://api.github.com/repos/'+repo+'/releases/latest',{headers:{Accept:'application/vnd.github+json'}});
+   if(!response.ok)throw new Error('No published release');
+   const release=await response.json(),assets=release.assets||[];
+   const macs=assets.filter(a=>/\.dmg$/i.test(a.name));
+   let mac=macs.find(a=>platform==='mac'&&/arm64|aarch64|apple.?silicon/i.test(a.name))||macs.find(a=>/arm64|aarch64|apple.?silicon/i.test(a.name))||macs[0]||match(assets,/\.zip$/i);
+   const win=match(assets,/(setup|installer).*\.exe$|\.exe$/i);
+   const linux=match(assets,/\.AppImage$/i)||match(assets,/\.deb$/i);
+   const android=match(assets,/(android|app-debug).*\.apk$|\.apk$/i);
+   set('mac',mac,'View macOS release files',releases+'/latest');
+   set('win',win,'View Windows release files',releases+'/latest');
+   set('linux',linux,'View Linux release files',releases+'/latest');
+   set('android',android,'View Android release files',releases+'/latest');
+   if(platform==='mac'&&mac){const arch=/(arm64|aarch64|apple.?silicon)/i.test(mac.name)?'Apple silicon':'available Mac build';document.getElementById('mac-status').textContent='Recommended for this device · '+arch;}
+   document.getElementById('release-note').textContent='Latest release: '+(release.name||release.tag_name)+'. Installer buttons link directly to published assets. '+(assets.length?' '+assets.length+' release asset(s) found.':'No installers attached yet.');
+  }catch(e){
+   ['mac','win','linux','android'].forEach(id=>set(id,null,'View all releases',releases+'/latest'));
+   document.getElementById('release-note').textContent='No published release assets were found yet, or GitHub could not be reached. You can still open the official Releases page to check build status.';
+  }
+ }
+ load();
+})();
+</script>
+</body></html>
