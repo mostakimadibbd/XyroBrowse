@@ -35,9 +35,33 @@ import {
   RefreshCw, Search, Sparkles
 } from 'lucide-react';
 
+function getOrCreateBrowserSessionId(): string {
+  const key = 'xyrobrowse:browser-session-id';
+  try {
+    const existing = window.localStorage.getItem(key);
+    if (existing && /^[a-f0-9-]{36}$/i.test(existing)) return existing;
+    const created = crypto.randomUUID();
+    window.localStorage.setItem(key, created);
+    return created;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
 export default function App() {
+  // Keep ordinary tabs on one shared session. Incognito tabs use isolated IDs,
+  // avoiding reliance on third-party iframe cookies in sandboxed Lite Mode.
+  const [browserSessionId] = useState<string>(() => getOrCreateBrowserSessionId());
+
   // 1. Persistent State
-  const [tabs, setTabs] = useState<Tab[]>(() => Storage.getTabs());
+  const [tabs, setTabs] = useState<Tab[]>(() =>
+    Storage.getTabs().map((tab) => ({
+      ...tab,
+      proxySessionId: tab.isIncognito
+        ? (tab.proxySessionId || crypto.randomUUID())
+        : browserSessionId,
+    }))
+  );
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     const restoredTabs = Storage.getTabs();
     const storedActiveId = Storage.getActiveTabId();
@@ -168,7 +192,7 @@ export default function App() {
   // 4. Tab Actions
   const createNewTab = useCallback((url = 'chrome://newtab', isIncognito = false) => {
     const newId = 'tab-' + Math.random().toString(36).slice(2, 9);
-    const proxySessionId = isIncognito ? crypto.randomUUID() : undefined;
+    const proxySessionId = isIncognito ? crypto.randomUUID() : browserSessionId;
     const newTab: Tab = {
       id: newId,
       url,
@@ -188,12 +212,12 @@ export default function App() {
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newId);
-  }, []);
+  }, [browserSessionId]);
 
   const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const closedTab = tabs.find((tab) => tab.id === id);
-    if (closedTab?.proxySessionId) {
+    if (closedTab?.isIncognito && closedTab.proxySessionId) {
       const cleanup = window.xyro?.platform === 'electron'
         ? window.xyro.clearIncognitoSession(id)
         : fetch('/api/clear-data', {
@@ -214,6 +238,7 @@ export default function App() {
           id: 'tab-1',
           url: 'chrome://newtab',
           title: 'New Tab',
+          proxySessionId: browserSessionId,
           isIncognito: false,
           pinned: false,
           history: ['chrome://newtab'],
