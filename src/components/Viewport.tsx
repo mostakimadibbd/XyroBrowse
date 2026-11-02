@@ -24,7 +24,7 @@ export function toProxyUrl(
     if (sessionId) u.searchParams.set('__xyro_sid', sessionId);
     if (shieldsEnabled) u.searchParams.delete('__xyro_shields');
     else u.searchParams.set('__xyro_shields', 'off');
-    const encOrigin = encodeURIComponent(u.origin);
+    const encOrigin = btoa(u.origin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
     const sub = u.pathname + u.search + u.hash;
     return `/api/p/${encOrigin}${sub.startsWith('/') ? sub : '/' + sub}`;
   } catch {
