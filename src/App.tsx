@@ -856,6 +856,23 @@ export default function App() {
     return () => unsubscribe?.();
   }, [createNewTab, handleKeyShortcut, navigate, reload]);
 
+  // Register the renderer's real Chromium webContents as soon as each webview attaches.
+  useEffect(() => {
+    if (window.xyro?.platform !== 'electron') return;
+    const handle = (event: Event) => {
+      const payload = event as Event & { webContents?: { id?: number } };
+      const guestId = payload.webContents?.id;
+      // Electron's public webview event does not expose its tab ID; use the
+      // DOM element's data-tab-id and its attached guest ID for IPC binding.
+      const element = Array.from(document.querySelectorAll('webview.chrome-iframe'))
+        .find((node) => (node as any).getWebContentsId?.() === guestId) as HTMLElement | undefined;
+      const tabId = element?.dataset.tabId;
+      if (tabId && guestId) window.xyro?.attachTab?.(tabId, guestId);
+    };
+    document.addEventListener('did-attach-webview', handle as EventListener);
+    return () => document.removeEventListener('did-attach-webview', handle as EventListener);
+  }, [tabs]);
+
   const commands = useMemo(() => generateCommands(), [generateCommands]);
 
   return (
