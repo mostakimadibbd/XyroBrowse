@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isPrivateIp } from '../server/safeFetch.js';
 import { isBlocked, stripTrackingParams } from '../server/blocklist.js';
-import { rewriteHtml, resolveUrl } from '../server/rewriteHtml.js';
+import { rewriteHtml, resolveUrl, toProxyUrl } from '../server/rewriteHtml.js';
 import { decodeDdgUrl, getDirectSearchUrl } from '../server/search.js';
 import { GET as searchApiGet } from '../api/search.js';
 
@@ -71,9 +71,9 @@ test('HTML Rewriter - proxies links, subresources, and injects shim', () => {
   // Check that tracker image was blocked
   assert.equal(blockedCount, 1);
   // Check that stylesheet was proxied
-  assert.equal(rewritten.includes('/api/p/https%3A%2F%2Fexample.com/style.css'), true);
+  assert.equal(rewritten.includes(toProxyUrl('https://example.com/style.css')), true);
   // Check that link was rewritten
-  assert.equal(rewritten.includes('/api/p/https%3A%2F%2Fexample.com/about'), true);
+  assert.equal(rewritten.includes(toProxyUrl('https://example.com/about')), true);
   // Check that shim was injected
   assert.equal(rewritten.includes('xyro-navigate'), true);
 });
