@@ -6,16 +6,17 @@
   "engines": {
     "node": ">=20.19.0"
   },
-  "main": "electron/main.ts",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "tsx server.ts",
     "dev:desktop": "concurrently -k \"npm run dev\" \"wait-on tcp:3000 && electron -r tsx/cjs electron/main.ts\"",
     "build": "vite build",
-    "build:desktop": "npm run build && electron-builder",
+    "build:desktop": "npm run build && npm run build:electron && electron-builder",
     "start": "tsx server.ts",
     "test": "tsx --test tests/*.test.ts",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "build:electron": "esbuild electron/main.ts --bundle --platform=node --format=esm --packages=external --external:electron --outfile=dist-electron/main.js && esbuild electron/preload.ts --bundle --platform=node --format=cjs --packages=external --external:electron --outfile=dist-electron/preload.cjs"
   },
   "dependencies": {
     "@ghostery/adblocker": "^2.20.3",
@@ -45,5 +46,70 @@
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "wait-on": "^9.5.1"
+  },
+  "build": {
+    "appId": "com.xyrobrowse.browser",
+    "productName": "XyroBrowse",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "linux": {
+      "category": "Network;WebBrowser;",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
   }
 }
