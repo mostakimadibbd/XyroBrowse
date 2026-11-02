@@ -416,6 +416,80 @@ const handleRequest = (request: Request): Promise<Response> => {
   return app.fetch(new Request(requestUrl, request));
 };
 
-export default {
-  fetch: handleRequest,
-};
+/**
+ * Vercel's Node.js runtime expects an (IncomingMessage, ServerResponse) handler.
+ * A Fetch-style { fetch } export is not a valid Node function entry point.
+ */
+export default async function handler(
+  req: import('node:http').IncomingMessage,
+  res: import('node:http').ServerResponse
+): Promise<void> {
+  try {
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto)
+      ?.split(',')[0]?.trim() || 'https';
+    const forwardedHost = req.headers['x-forwarded-host'] || req.headers.host;
+    const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
+
+    if (!host) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ error: 'Missing request host', code: 'ERR_MISSING_HOST' }));
+      return;
+    }
+
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value === undefined) continue;
+      if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
+      else headers.set(name, value);
+    }
+
+    const method = (req.method || 'GET').toUpperCase();
+    const init: RequestInit & { duplex?: 'half' } = { method, headers };
+    if (method !== 'GET' && method !== 'HEAD') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      init.body = Buffer.concat(chunks);
+      init.duplex = 'half';
+    }
+
+    const requestUrl = new URL(req.url || '/', `${protocol}://${host}`);
+    const response = await handleRequest(new Request(requestUrl, init));
+
+    res.statusCode = response.status;
+    response.headers.forEach((value, name) => {
+      if (name.toLowerCase() !== 'set-cookie') res.setHeader(name, value);
+    });
+    const cookies = response.headers.getSetCookie?.() || [];
+    if (cookies.length) res.setHeader('Set-Cookie', cookies);
+
+    if (!response.body || method === 'HEAD') {
+      res.end();
+      return;
+    }
+
+    const reader = response.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!res.write(Buffer.from(value))) {
+        await new Promise<void>((resolve, reject) => {
+          res.once('drain', resolve);
+          res.once('error', reject);
+        });
+      }
+    }
+    res.end();
+  } catch (error) {
+    console.error('XyroBrowse API handler failed:', error);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+    }
+    res.end(JSON.stringify({ error: 'Internal API error', code: 'ERR_API_HANDLER' }));
+  }
+}
