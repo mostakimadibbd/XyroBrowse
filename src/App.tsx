@@ -574,6 +574,7 @@ export default function App() {
           body: JSON.stringify({
             clearCookies: options.clearCookies,
             clearCache: options.clearCache,
+            sessionId: browserSessionId,
           }),
         });
         if (!response.ok) {
