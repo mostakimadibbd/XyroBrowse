@@ -78,23 +78,8 @@ async function createWindow() {
     });
   });
 
-  const guestTabIds = new Map<number, string>();
-  mainWindow.webContents.on('did-attach-webview', (_event, guestContents) => {
-    const guest = guestContents as WebContents;
-    const actualTabId = guestTabIds.get(guest.id);
-    if (!actualTabId) return;
-    tabManager.attachWebContents(actualTabId, guest, (eventName, payload) => {
-      mainWindow?.webContents.send('engine-event', eventName, payload);
-    });
-    guest.on('destroyed', () => {
-      guestTabIds.delete(guest.id);
-      tabManager.removeTab(actualTabId);
-    });
-  });
-
   // Secure webview creation
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    const tabId = params.src ? new URL(params.src).searchParams.get('__xyro_tab_id') : null;
     delete webPreferences.preload;
     delete (webPreferences as any).preloadURL;
     const partition = params.partition || '';
@@ -108,12 +93,6 @@ async function createWindow() {
     webPreferences.nodeIntegration = false;
     webPreferences.sandbox = true;
     webPreferences.javascript = true;
-    if (!tabId) {
-      event.preventDefault();
-      return;
-    }
-    params.src = params.src.replace(/([?&])__xyro_tab_id=[^&]*/g, '$1').replace(/[?&]$/, '');
-    guestTabIds.set((event as any).webContentsId, tabId);
   });
 
   // Window open handler: forward to new tab and deny native windows
@@ -164,8 +143,14 @@ app.on('open-url', (event, url) => {
 
 // IPC Handlers
 ipcMain.on('xyro-tab-create', (_evt, { tabId, url, isIncognito }) => {
-  const info = tabManager.registerTab(tabId, isIncognito);
-  pendingWebviewTabs.push({ tabId });
+  tabManager.registerTab(tabId, isIncognito);
+});
+ipcMain.on('xyro-tab-attach', (_evt, { tabId, webContentsId }: { tabId: string; webContentsId: number }) => {
+  const guest = webContents.fromId(webContentsId);
+  if (!guest || guest.isDestroyed()) return;
+  tabManager.attachWebContents(tabId, guest, (eventName, payload) => {
+    mainWindow?.webContents.send('engine-event', eventName, payload);
+  });
 });
 ipcMain.on('xyro-tab-attach', (_evt, { tabId, webContentsId }: { tabId: string; webContentsId: number }) => {
   const guest = webContents.fromId(webContentsId);
