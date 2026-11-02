@@ -308,7 +308,7 @@ export const Viewport: React.FC<ViewportProps> = ({
                 const guestId = element?.getWebContentsId?.();
                 if (guestId) (window as any).xyro?.attachTab?.(t.id, guestId);
               }}
-              src={t.contentUrl || t.url}
+              src={(() => { const u = new URL(t.contentUrl || t.url); u.searchParams.set('__xyro_tab_id', t.id); return u.toString(); })()}
               allowpopups="true"
               partition={t.isIncognito ? `incognito-${t.id}` : 'persist:xyro'}
               webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
