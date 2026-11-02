@@ -251,7 +251,7 @@ app.all('/api/p/:origin/*', async (req: Request, res: Response) => {
       const rewrittenCss = rewriteCss(
         rawCss,
         fetched.finalUrl,
-        privateSessionId || undefined,
+        privateSessionId || (req as any).xyro_sid,
         shieldsEnabled
       );
       res.setHeader('Content-Type', 'text/css; charset=utf-8');
