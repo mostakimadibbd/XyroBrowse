@@ -178,6 +178,7 @@ app.all('/p/:origin/**', async (c) => {
     return c.body(null, 204);
   }
 
+  const sessionId = c.req.header('cookie')?.match(/xyro_sid=([^;]+)/)?.[1] || crypto.randomUUID();
   const sid = privateSessionId ? `private:${privateSessionId}` : sessionId;
   const jar = getCookieJar(sid);
 
